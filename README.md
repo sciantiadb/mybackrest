@@ -1,13 +1,13 @@
 
-mybackrest : MySQL / MariaDB Backup & Restore tool
+# mybackrest 
+
+MySQL / MariaDB Backup & Restore tool
 ==================================================
 
 
 FEATURES
 --------
 
-pitrery is set of tools to ease the management of PITR backups and
-restores:
 
 mybackrest is set of tools to manage LOGICAL , PITR backups and
 restores :
