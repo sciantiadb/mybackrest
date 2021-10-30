@@ -29,6 +29,8 @@ QUICK SETUP
 
 1. Get the source
 
+2. Make it executable `chmod +x /usr/bin/mybackrest`
+
 2. Run `mybackrest --cluster cluster_name --generate`
 
 3. Adapt the cluster_name.cfg in /etc/mybackrest.d
