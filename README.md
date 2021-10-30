@@ -1,8 +1,8 @@
 
-# mybackrest 
+mybackrest 
 
-MySQL / MariaDB Backup & Restore tool
-==================================================
+mysql / mariadb Backup & Restore tool
+=====================================
 
 
 FEATURES
