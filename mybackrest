@@ -94,7 +94,7 @@ function f_showconfig(){
 
 local cluster=${1}
 
-find ${cfg_dir} -type f -name "${cluster}.cfg" | while read cfg
+find ${cfg_dir} -type f -name "${cluster}.cfg" 2> /dev/null | while read cfg
 do
  mawk -F"=" -v CLUSTER=$(basename -s .cfg ${cfg}) '
  BEGIN {
@@ -125,7 +125,7 @@ printf "%s : %s \n","physical_backup_retention",PARAMS["physical_backup_retentio
 printf "%s : %s \n","physical_backup_tool",PARAMS["physical_backup_tool"]
 }
 printf "\n"
- }'   ${cfg}
+}'   ${cfg} 2> /dev/null
 done
 }
 
@@ -134,7 +134,7 @@ function f_load_config(){
 local cluster_name=${1}
 
 source ${cfg_dir}/${cluster_name}.mbk 2> /dev/null || f_usage
-mkdir ${tmp_dir}/ -p
+mkdir ${tmp_dir} -p 2> /dev/null
 trap "rm ${tmp_dir}/${cluster_name}.lock 2>/dev/null " EXIT
 echo $$ > ${tmp_dir}/${cluster_name}.lock
 [ "${password}" != "null" ] && password="--password=${password}"
@@ -146,10 +146,10 @@ dsn_info=" --port=${port} --host=${host} --user=${user} ${password}"
 
 function f_showcluster(){
 
-find  ${cfg_dir} -type f -name "*.cfg" | while read cfg
+find  ${cfg_dir} -type f -name "*.cfg" 2> /dev/null | while read cfg
 do
 desc=$( mawk -F "=" '/descriptions/ {print $2}  ' ${cfg}  )
-cluster=$(basename -s .cfg ${cfg}  )
+cluster=$(basename -s .cfg ${cfg} 2> /dev/null  )
 echo -e "${cluster} - ${desc}"
 done
 
@@ -311,7 +311,7 @@ physical_backup_retention=2
 grace_timeout=60
 
 # ------------------------------------------ #
-" >> "${cfg_dir}/${cluster_config}.cfg"
+" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
 f_log success "${cluster_config}" "Cluster ${cluster_config} added and active in ${cfg_dir} "
 # mkdir ${data_location}/${cluster_config} -p
 else
@@ -340,9 +340,9 @@ log_location=${log_directory}/${cluster_name}/${mainjobdate}
 data_file=${data_location}/${cluster_name}.db
 
 
-[ -d "${backup_location}" ] || mkdir -p ${backup_location}
-[ -d "${log_location}" ] || mkdir -p ${log_location}
-[ -d "${data_location}" ] || mkdir -p ${data_location}
+[ -d "${backup_location}" ] || mkdir -p ${backup_location} 2> /dev/null
+[ -d "${log_location}" ] || mkdir -p ${log_location} 2> /dev/null
+[ -d "${data_location}" ] || mkdir -p ${data_location} 2> /dev/null
 
 case ${databases} in
 "all")
@@ -407,7 +407,7 @@ case ${databases} in
         if [ $? -eq 0 ]; then
             end_date=$(date "+%s")
             duration=$((${end_date}-${start_date}))
-            bkp_size=$(du -sb ${backup_location}/${db}_${jobdate}.dmp | mawk '{print $1}')
+            bkp_size=$(du -sb ${backup_location}/${db}_${jobdate}.dmp 2> /dev/null | mawk '{print $1}')
             echo "${tool};$(date +%Y%m%d%H%M%S -d@${start_date});$(date +%Y%m%d%H%M%S -d@${end_date});logical;${db};${duration};${bkp_size}"  >> ${data_file}
             if [ "${isverbose}" == "true" ]; then
                 f_log debug ${cluster_name} "Running : bzip2 -sv ${backup_location}/logical_${db}_${jobdate}.dmp ... "
