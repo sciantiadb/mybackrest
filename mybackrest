@@ -35,9 +35,10 @@ readonly log_directory="/var/log/mybackrest"
 readonly data_location="/var/lib/mybackrest/internal"
 readonly tool="mybackrest"
 readonly mainjobdate=$(date "+%Y%m%d")
-readonly version="1.0"
-readonly xtrabackupchk="xtrabackup_checkpoints"
-readonly xtrabackupinfo="xtrabackup_info"
+readonly version="1.1"
+
+# readonly xtrabackupchk="xtrabackup_checkpoints"
+# readonly xtrabackupinfo="xtrabackup_info"
 
 # ------------------------------------------------------------------------------
 # Initialize defaults
@@ -46,6 +47,8 @@ readonly xtrabackupinfo="xtrabackup_info"
 cluster_name="null"
 physical_backup_tool="mariabackup"
 physical_backup_retention_method="count"
+xtrabackupchk="xtrabackup_checkpoints"
+xtrabackupinfo="xtrabackup_info"
 arcbinlog_recovery_window=7
 databases="all"
 max_compress_days=2
@@ -71,97 +74,95 @@ generate_flag=false
 function f_requirements(){
 
 
-if [ ! -d "${cfg_dir}" ]; then
- f_log warning "${tool}" "Configuration directory is missing : ${cfg_dir} "
- mkdir -p "${cfg_dir}" 2>/dev/null
- f_log info "${tool}" "Configuration directory created "
- exit 2
-fi
+    if [ ! -d "${cfg_dir}" ]; then
+    f_log warning "${tool}" "Configuration directory is missing : ${cfg_dir} "
+    mkdir -p "${cfg_dir}" 2>/dev/null
+    f_log info "${tool}" "Configuration directory created "
+    exit 2
+    fi
 
-if [ ! -d "${tmp_dir}" ]; then
- f_log warning "${tool}" "Temp directory is missing : ${tmp_dir} "
- mkdir -p "${tmp_dir}" 2>/dev/null
- f_log info "${tool}" "Temp directory created "
-fi
+    if [ ! -d "${tmp_dir}" ]; then
+    f_log warning "${tool}" "Temp directory is missing : ${tmp_dir} "
+    mkdir -p "${tmp_dir}" 2>/dev/null
+    f_log info "${tool}" "Temp directory created "
+    fi
 
-if [ ! -d "${data_location}" ]; then
-   mkdir -p ${data_location} 2>/dev/null
-fi
+    if [ ! -d "${data_location}" ]; then
+    mkdir -p ${data_location} 2>/dev/null
+    fi
 
 }
 
 function f_showconfig(){
 
-local cluster=${1}
+    local cluster=${1}
 
-find ${cfg_dir} -type f -name "${cluster}.cfg" 2> /dev/null | while read cfg
-do
- mawk -F"=" -v CLUSTER=$(basename -s .cfg ${cfg}) '
- BEGIN {
-   printf "\n ==  mybackrest configuration for  %-25s \n\n",CLUSTER" =="
- }
- {
- if ( match($0,/^#/)){ next }
- if ( match($0,/^$/)){ next }
- PARAMS[$1]=$2
- }
- END {
- {
-printf "\nDSN Configuration :\n"
-printf "---------------------\n
-printf "%s : %s \n","user",PARAMS["user"]
-printf "%s : %s \n","host",PARAMS["host"]
-printf "%s : %s \n","password","xxxxxxxxxx"
-printf "%s : %s \n","port",PARAMS["port"]
-printf "\nBackup Configuration :\n"
-printf "------------------------\n"
-printf "%s : %s \n","databases",PARAMS["databases"]
-printf "%s : %s \n","backup_directory",PARAMS["backup_directory"]
-printf "%s : %s \n","log_directory",PARAMS["log_directory"]
-printf "%s : %s \n","backup_retention_method",PARAMS["backup_retention_method"]
-printf "%s : %s \n","backup_retention",PARAMS["backup_retention"]
-printf "%s : %s \n","physical_backup_retention_method",PARAMS["physical_backup_retention_method"]
-printf "%s : %s \n","physical_backup_retention",PARAMS["physical_backup_retention"]
-printf "%s : %s \n","physical_backup_tool",PARAMS["physical_backup_tool"]
-}
-printf "\n"
-}'   ${cfg} 2> /dev/null
-done
+    find ${cfg_dir} -type f -name "${cluster}.cfg" 2> /dev/null | while read cfg
+    do
+    mawk -F"=" -v CLUSTER=$(basename -s .cfg ${cfg}) '
+    BEGIN {
+    printf "\n ==  mybackrest configuration for  %-25s \n\n",CLUSTER" =="
+    }
+    {
+    if ( match($0,/^#/)){ next }
+    if ( match($0,/^$/)){ next }
+    PARAMS[$1]=$2
+    }
+    END {
+    {
+    printf "\nDSN Configuration :\n"
+    printf "---------------------\n"
+    printf "%-35s : %s \n","service_file",PARAMS["service_file"]
+    printf "\nBackup Configuration :\n"
+    printf "------------------------\n"
+    printf "%-35s : %s \n","databases",PARAMS["databases"]
+    printf "%-35s : %s \n","backup_directory",PARAMS["backup_directory"]
+    printf "%-35s : %s \n","log_directory",PARAMS["log_directory"]
+    printf "%-35s : %s \n","backup_retention_method",PARAMS["backup_retention_method"]
+    printf "%-35s : %s \n","backup_retention",PARAMS["backup_retention"]
+    printf "%-35s : %s \n","physical_backup_retention_method",PARAMS["physical_backup_retention_method"]
+    printf "%-35s : %s \n","physical_backup_retention",PARAMS["physical_backup_retention"]
+    printf "%-35s : %s \n","physical_backup_tool",PARAMS["physical_backup_tool"]
+    }
+    printf "\n"
+    }'   ${cfg} 2> /dev/null
+    done
 }
 
 function f_load_config(){
 
-local cluster_name=${1}
+    local cluster_name=${1}
 
-source ${cfg_dir}/${cluster_name}.mbk 2> /dev/null || f_usage
-mkdir ${tmp_dir} -p 2> /dev/null
-trap "rm ${tmp_dir}/${cluster_name}.lock 2>/dev/null " EXIT
-echo $$ > ${tmp_dir}/${cluster_name}.lock
-[ "${password}" != "null" ] && password="--password=${password}"
+    source ${cfg_dir}/${cluster_name}.cfg 2> /dev/null || f_usage
+    mkdir ${tmp_dir} -p 2> /dev/null
+    trap "rm ${tmp_dir}/${cluster_name}.lock 2>/dev/null " EXIT
+    echo $$ > ${tmp_dir}/${cluster_name}.lock
+    # [ "${password}" != "null" ] && password="--password=${password}"
 
-dsn_info=" --port=${port} --host=${host} --user=${user} ${password}"
-
+    # dsn_info=" --port=${port} --host=${host} --user=${user} ${password}"
+    dsn_info="--defaults-extra-file=${service_file} --defaults-group-suffix=${cluster_name}"
 
 }
 
 function f_showcluster(){
 
-find  ${cfg_dir} -type f -name "*.cfg" 2> /dev/null | while read cfg
-do
-desc=$( mawk -F "=" '/descriptions/ {print $2}  ' ${cfg}  )
-cluster=$(basename -s .cfg ${cfg} 2> /dev/null  )
-echo -e "${cluster} - ${desc}"
-done
+    find  ${cfg_dir} -type f -name "*.cfg" 2> /dev/null | while read cfg
+    do
+    desc=$( mawk -F "=" '/descriptions/ {print $2}  ' ${cfg}  )
+    cluster=$(basename -s .cfg ${cfg} 2> /dev/null  )
+    echo -e "${cluster} - ${desc}"
+    done
 
 }
 
 function f_check_lock(){
-current_cluster=$1
-if [ -f ${tmp_dir}/${cluster_name}.lock ]; then
-   PID=$(cat ${tmp_dir}/${cluster_name}.lock)
-   f_log failed "${cluster_name}" "A job is already running with PID : ${PID}..."
-   exit 2
-fi
+    
+    current_cluster=$1
+    if [ -f ${tmp_dir}/${cluster_name}.lock ]; then
+    PID=$(cat ${tmp_dir}/${cluster_name}.lock)
+    f_log failed "${cluster_name}" "A job is already running with PID : ${PID}..."
+    exit 2
+    fi
 
 
 }
@@ -213,1122 +214,1107 @@ function f_log(){
   	;;
   esac
 
-[ -d "${log_directory}" ] || mkdir -p ${log_directory} 2>/dev/null
-case ${log_output_format} in
-classic)
-echo -e "[${datelong}] [${COLOR}${trace}${color_normal}] [ ${object} ] ${messages}"
-echo "[${datelong}] [${trace}] [ ${object} ] ${messages}" >> /var/log/${tool}.log
-;;
-file)
-echo "[${datelong}] [${trace}] [ ${object} ] ${messages}" >> /var/log/${tool}.log
-;;
-console)
-echo -e "[${datelong}] [${COLOR}${trace}${color_normal}] [ ${object} ] ${messages}"
-;;
-*)
-echo -e "[${datelong}] [${COLOR}${trace}${color_normal}] [ ${object} ] ${messages}"
-echo "[${datelong}] [${trace}] [ ${object} ] ${messages}" >> /var/log/${tool}.log
-esac
+    [ -d "${log_directory}" ] || mkdir -p ${log_directory} 2>/dev/null
+    case ${log_output_format} in
+    classic)
+    echo -e "[${datelong}] [${COLOR}${trace}${color_normal}] [ ${object} ] ${messages}"
+    echo "[${datelong}] [${trace}] [ ${object} ] ${messages}" >> /var/log/${tool}.log
+    ;;
+    file)
+    echo "[${datelong}] [${trace}] [ ${object} ] ${messages}" >> /var/log/${tool}.log
+    ;;
+    console)
+    echo -e "[${datelong}] [${COLOR}${trace}${color_normal}] [ ${object} ] ${messages}"
+    ;;
+    *)
+    echo -e "[${datelong}] [${COLOR}${trace}${color_normal}] [ ${object} ] ${messages}"
+    echo "[${datelong}] [${trace}] [ ${object} ] ${messages}" >> /var/log/${tool}.log
+    esac
 }
 
 function f_confirm_log(){
-# Desc : Parse the logfile to confirm the good backup
-# Args : logfile to parse
-log_to_parse=${1}
-check=$( tail -n 50 ${log_to_parse} |  mawk '/completed OK/ {print}'  2> /dev/null)
+    # Desc : Parse the logfile to confirm the good backup
+    # Args : logfile to parse
+    log_to_parse=${1}
+    check=$( tail -n 50 ${log_to_parse} |  mawk '/completed OK/ {print}'  2> /dev/null)
 
-if [ ! -z "${check}" ]; then
-return_code=0
-else
-return_code=1
-fi
-return ${return_code}
+    if [ ! -z "${check}" ]; then
+    return_code=0
+    else
+    return_code=1
+    fi
+    return ${return_code}
 }
 
 function f_generate(){
 
-local cluster_config=${1}
+    local cluster_config=${1}
 
+    if [ ! -f "${cfg_dir}/${cluster_config}.cfg" ]; then
+    echo "# ------------------------------------------ #" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "#  ${tool}  configuration file " >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "# ------------------------------------------ #" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "#" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "# Cluster Name :  ${cluster_config}" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "#" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "descriptions = \" MySQL Instance \"" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "# ------------------------------------------------------------------------------------" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "# CONNECTIONS" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "# ------------------------------------------------------------------------------------" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "service_file=/etc/mybackrest.d/service.cnf" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "# ------------------------------------------------------------------------------------" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "# GLOBAL" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "# ------------------------------------------------------------------------------------" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "backup_directory=/var/lib/mybackrest" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "log_output_format=classic" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "log_directory=/var/log/mybackrest" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "# ------------------------------------------------------------------------------------" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "# BACKUP LOGICAL" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "# ------------------------------------------------------------------------------------" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "databases=all" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "backup_retention=5" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "backup_retention_method=days" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "# ------------------------------------------------------------------------------------" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "# BACKUP LOWLEVEL" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "# ------------------------------------------------------------------------------------" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "physical_backup_tool=xtrabackup" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "#physical_backup_tool_options=\" --parallel=2 --open-files-limit=10000 \"" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "physical_backup_retention_method=count" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "physical_backup_retention=2" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "# ------------------------------------------------------------------------------------" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "# RESTORE LOWLEVEL" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "# ------------------------------------------------------------------------------------" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "grace_timeout=60" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
+    echo "# ------------------------------------------ #" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
 
-if [ ! -f "${cfg_dir}/${cluster_config}.cfg" ]; then
-echo "
-# ------------------------------------------ #
-#  ${tool}  configuration file
-# ------------------------------------------ #
-#
-# Cluster Name :  ${cluster_config}
-#
-descriptions = \"\"
-# ------------------------------------------------------------------------------------
-# CONNECTIONS
-# ------------------------------------------------------------------------------------
-
-user=root
-
-host=127.0.0.1
-
-port=3306
-
-#password=xxxxx
-
-# ------------------------------------------------------------------------------------
-# GLOBAL
-# ------------------------------------------------------------------------------------
-
-backup_directory=/var/lib/mybackrest
-
-log_output_format=classic
-
-log_directory=/var/log/mybackrest
-
-# ------------------------------------------------------------------------------------
-# BACKUP LOGICAL
-# ------------------------------------------------------------------------------------
-
-databases=all
-
-backup_retention=5
-
-backup_retention_method=days
-
-# ------------------------------------------------------------------------------------
-# BACKUP LOWLEVEL
-# ------------------------------------------------------------------------------------
-
-physical_backup_tool=xtrabackup
-
-#physical_backup_tool_options=\" --parallel=2 --open-files-limit=10000 \"
-
-physical_backup_retention_method=count
-
-physical_backup_retention=2
-
-
-# ------------------------------------------------------------------------------------
-# RESTORE LOWLEVEL
-# ------------------------------------------------------------------------------------
-
-grace_timeout=60
-
-# ------------------------------------------ #
-" >> "${cfg_dir}/${cluster_config}.cfg" 2> /dev/null
-f_log success "${cluster_config}" "Cluster ${cluster_config} added and active in ${cfg_dir} "
-# mkdir ${data_location}/${cluster_config} -p
-else
-f_log failed "${cluster_config}" "Cluster ${cluster_config} seems already present and active in ${cfg_dir} "
-exit 2
-fi
+    f_log success "${cluster_config}" "Cluster ${cluster_config} added and active in ${cfg_dir} "
+    # mkdir ${data_location}/${cluster_config} -p
+    else
+    f_log failed "${cluster_config}" "Cluster ${cluster_config} seems already present and active in ${cfg_dir} "
+    exit 2
+    fi
 
 }
 
 function f_logical_backup(){
 
-jobdate=$(date "+%Y%m%d-%H%M%S")
-f_return=0
-################
-# Initialisation de la collection
-################
-local cluster_name=${1}
+    jobdate=$(date "+%Y%m%d-%H%M%S")
+    f_return=0
+    ################
+    # Initialisation de la collection
+    ################
+    local cluster_name=${1}
 
-[ ! -z "${dbs}" ] && databases=${dbs}
+    [ ! -z "${dbs}" ] && databases=${dbs}
 
-f_test_connection ${cluster_name}
-
-
-backup_location=${backup_directory}/${cluster_name}/logical/${mainjobdate}
-log_location=${log_directory}/${cluster_name}/${mainjobdate}
-data_file=${data_location}/${cluster_name}.db
+    f_test_connection ${cluster_name}
 
 
-[ -d "${backup_location}" ] || mkdir -p ${backup_location} 2> /dev/null
-[ -d "${log_location}" ] || mkdir -p ${log_location} 2> /dev/null
-[ -d "${data_location}" ] || mkdir -p ${data_location} 2> /dev/null
+    backup_location=${backup_directory}/${cluster_name}/logical/${mainjobdate}
+    log_location=${log_directory}/${cluster_name}/${mainjobdate}
+    data_file=${data_location}/${cluster_name}.db
 
-case ${databases} in
-"all")
-    f_log info ${cluster_name} "Initiate Logical Backup  "
-    dblist=$(mysql ${dsn_info}  -sNe "select SCHEMA_NAME from information_schema.SCHEMATA where SCHEMA_NAME not in ('performance_schema','information_schema','test')" 2> /dev/null )
-    for db in ${dblist}
-        do
 
-            database=${db}
-            f_log info ${cluster_name} "Dumping ${db} ... "
+    [ -d "${backup_location}" ] || mkdir -p ${backup_location} 2> /dev/null
+    [ -d "${log_location}" ] || mkdir -p ${log_location} 2> /dev/null
+    [ -d "${data_location}" ] || mkdir -p ${data_location} 2> /dev/null
 
-            if [ "${isverbose}" == "true" ]; then
-                f_log debug ${cluster_name} "Running : mysqldump ${dsn_info}  --routines --events --quote-names --opt -v   \"${db}\" -r ${backup_location}/logical_${db}_${jobdate}.dmp ... "
+    case ${databases} in
+    "all")
+        f_log info ${cluster_name} "Initiate Logical Backup  "
+        dblist=$(mysql ${dsn_info}  -sNe "select SCHEMA_NAME from information_schema.SCHEMATA where SCHEMA_NAME not in ('performance_schema','information_schema','test')" 2> /dev/null )
+        for db in ${dblist}
+            do
+
+                database=${db}
+                f_log info ${cluster_name} "Dumping ${db} ... "
+
+                if [ "${isverbose}" == "true" ]; then
+                    f_log debug ${cluster_name} "Running : mysqldump ${dsn_info}  --routines --events --quote-names --opt -v   \"${db}\" -r ${backup_location}/logical_${db}_${jobdate}.dmp ... "
+                fi
+                start_date=$(date "+%s")
+                mysqldump ${dsn_info}  --routines --events --quote-names --opt -v "${db}" -r ${backup_location}/${db}_${jobdate}.dmp --log-error=${log_location}/logical_${db}_${jobdate}.log 2> /dev/null
+
+            if [ $? -eq 0 ]; then
+                end_date=$(date "+%s")
+                duration=$((${end_date}-${start_date}))
+                bkp_size=$(du -sb ${backup_location}/${db}_${jobdate}.dmp | mawk '{print $1}')
+                echo "${tool};$(date +%Y%m%d%H%M%S -d@${start_date});$(date +%Y%m%d%H%M%S -d@${end_date});logical;${db};${duration};${bkp_size}"  >> ${data_file}
+                if [ "${isverbose}" == "true" ]; then
+                    f_log debug ${cluster_name} "Running : bzip2 -sv ${backup_location}/${db}_${jobdate}.dmp ... "
+                fi
+                bzip2 -sv ${backup_location}/${db}_${jobdate}.dmp >> ${log_location}/logical_${db}_${jobdate}.log  2>&1
+                if [ $? -eq 0 ]; then
+                f_log success ${cluster_name} "Dump of ${db} done "
+                else
+                f_log warning  ${cluster_name} "Dump of ${db} done but compression failed  "
+                fi
+            else
+                ((f_return++))
+                f_log failed ${cluster_name} "Dump of ${db} failed "
+
+                f_log info ${cluster_name} " HINT :  Check ${log_location}/logical_${db}_${jobdate}.log"
             fi
+            done
+
+    ;;
+    "")
+        f_log failed  ${cluster_name} "No database selected"
+        exit 2
+    ;;
+
+    *)
+        f_log info ${cluster_name} "Initiating Logical Backup  "
+        ################
+        # lecture des bases listes
+        ################
+        for db in $(echo "${databases}" | tr ',' '\n')
+            do
+            f_log info ${cluster_name} "Dumping ${db} ... "
+            if [ "${isverbose}" == "true" ]; then
+                    f_log debug ${cluster_name} "Running : mysqldump ${dsn_info}  --routines --events --quote-names --opt -v   ${db} -r ${backup_location}/logical_${db}_${jobdate}.dmp ... "
+            fi
+            ################
+            # Lancement de l'export :
+            ################
             start_date=$(date "+%s")
             mysqldump ${dsn_info}  --routines --events --quote-names --opt -v "${db}" -r ${backup_location}/${db}_${jobdate}.dmp --log-error=${log_location}/logical_${db}_${jobdate}.log 2> /dev/null
-
-        if [ $? -eq 0 ]; then
-            end_date=$(date "+%s")
-            duration=$((${end_date}-${start_date}))
-            bkp_size=$(du -sb ${backup_location}/${db}_${jobdate}.dmp | mawk '{print $1}')
-            echo "${tool};$(date +%Y%m%d%H%M%S -d@${start_date});$(date +%Y%m%d%H%M%S -d@${end_date});logical;${db};${duration};${bkp_size}"  >> ${data_file}
-            if [ "${isverbose}" == "true" ]; then
-                f_log debug ${cluster_name} "Running : bzip2 -sv ${backup_location}/${db}_${jobdate}.dmp ... "
-            fi
-            bzip2 -sv ${backup_location}/${db}_${jobdate}.dmp >> ${log_location}/logical_${db}_${jobdate}.log  2>&1
             if [ $? -eq 0 ]; then
-            f_log success ${cluster_name} "Dump of ${db} done "
+                end_date=$(date "+%s")
+                duration=$((${end_date}-${start_date}))
+                bkp_size=$(du -sb ${backup_location}/${db}_${jobdate}.dmp 2> /dev/null | mawk '{print $1}')
+                echo "${tool};$(date +%Y%m%d%H%M%S -d@${start_date});$(date +%Y%m%d%H%M%S -d@${end_date});logical;${db};${duration};${bkp_size}"  >> ${data_file}
+                if [ "${isverbose}" == "true" ]; then
+                    f_log debug ${cluster_name} "Running : bzip2 -sv ${backup_location}/logical_${db}_${jobdate}.dmp ... "
+                fi
+                bzip2 -sv ${backup_location}/${db}_${jobdate}.dmp >> ${log_location}/logical_${db}_${jobdate}.log  2>&1
+                if [ $? -eq 0 ]; then
+                f_log success ${cluster_name} "Dump of ${db} done "
+                else
+                f_log warning  ${cluster_name} "Dump of ${db} done but compression failed  "
+                fi
             else
-            f_log warning  ${cluster_name} "Dump of ${db} done but compression failed  "
+                ((f_return++))
+                f_log failed ${cluster_name} "Dump of ${db} failed "
+                f_log info ${cluster_name} " HINT :  Check ${log_location}/logical_${db}_${jobdate}.log "
             fi
-        else
-            ((f_return++))
-            f_log failed ${cluster_name} "Dump of ${db} failed "
+            done
 
-            f_log info ${cluster_name} " HINT :  Check ${log_location}/logical_${db}_${jobdate}.log"
-        fi
-        done
+    ;;
+    esac
 
-;;
-"")
-    f_log failed  ${cluster_name} "No database selected"
-    exit 2
-;;
+    if [ ${f_return} -eq 0 ]; then
+    f_logical_expire
 
-*)
-    f_log info ${cluster_name} "Initiating Logical Backup  "
-       ################
-       # lecture des bases listes
-       ################
-    for db in $(echo "${databases}" | tr ',' '\n')
-        do
-        f_log info ${cluster_name} "Dumping ${db} ... "
-        if [ "${isverbose}" == "true" ]; then
-                f_log debug ${cluster_name} "Running : mysqldump ${dsn_info}  --routines --events --quote-names --opt -v   ${db} -r ${backup_location}/logical_${db}_${jobdate}.dmp ... "
-        fi
-        ################
-        # Lancement de l'export :
-        ################
-        start_date=$(date "+%s")
-        mysqldump ${dsn_info}  --routines --events --quote-names --opt -v "${db}" -r ${backup_location}/${db}_${jobdate}.dmp --log-error=${log_location}/logical_${db}_${jobdate}.log 2> /dev/null
-        if [ $? -eq 0 ]; then
-            end_date=$(date "+%s")
-            duration=$((${end_date}-${start_date}))
-            bkp_size=$(du -sb ${backup_location}/${db}_${jobdate}.dmp 2> /dev/null | mawk '{print $1}')
-            echo "${tool};$(date +%Y%m%d%H%M%S -d@${start_date});$(date +%Y%m%d%H%M%S -d@${end_date});logical;${db};${duration};${bkp_size}"  >> ${data_file}
-            if [ "${isverbose}" == "true" ]; then
-                f_log debug ${cluster_name} "Running : bzip2 -sv ${backup_location}/logical_${db}_${jobdate}.dmp ... "
-            fi
-            bzip2 -sv ${backup_location}/${db}_${jobdate}.dmp >> ${log_location}/logical_${db}_${jobdate}.log  2>&1
-            if [ $? -eq 0 ]; then
-            f_log success ${cluster_name} "Dump of ${db} done "
-            else
-            f_log warning  ${cluster_name} "Dump of ${db} done but compression failed  "
-            fi
-        else
-            ((f_return++))
-            f_log failed ${cluster_name} "Dump of ${db} failed "
-            f_log info ${cluster_name} " HINT :  Check ${log_location}/logical_${db}_${jobdate}.log "
-        fi
-        done
+    exit 0
+    else
+    f_log warning ${cluster_name} "Some errors in backup , no cleanup "
 
-;;
-esac
-
-if [ ${f_return} -eq 0 ]; then
-  f_logical_expire
-
-  exit 0
-else
-  f_log warning ${cluster_name} "Some errors in backup , no cleanup "
-
-  exit 1
-fi
+    exit 1
+    fi
 
 
 }
 
 function f_logical_info(){
 
-find  ${backup_directory}/${cluster_name}/logical/* -type d 2> /dev/null | while read dmpdir
-do
- t=$(basename ${dmpdir})
- s=$(du -sb ${dmpdir} | mawk '{print $1}')
- echo "$t;$s" >> ${tmp_dir}/.$$.tmp
-find ${dmpdir} -type f | while read file
-do
- to=$(basename -s .dmp.bz2 ${file})
- so=$(du -sb  ${file})
- echo "    |_    ;${so};${to}" >> ${tmp_dir}/.$$.tmp
-done
-done
+    find  ${backup_directory}/${cluster_name}/logical/* -type d 2> /dev/null | while read dmpdir
+    do
+    t=$(basename ${dmpdir})
+    s=$(du -sb ${dmpdir} | mawk '{print $1}')
+    echo "$t;$s" >> ${tmp_dir}/.$$.tmp
+    find ${dmpdir} -type f | while read file
+    do
+    to=$(basename -s .dmp.bz2 ${file})
+    so=$(du -sb  ${file})
+    echo "    |_    ;${so};${to}" >> ${tmp_dir}/.$$.tmp
+    done
+    done
 
-mawk -F ";" '
-BEGIN {
-printf "+-----------------------+-----------------+----------------------------------------------------+\n"
-printf "|     BACKUPSET         |       SIZE      |                    FILENAME                        |\n"
-printf "+-----------------------+-----------------+----------------------------------------------------+\n"
-}
-{
-printf "| %-21s | %12.3f MB | %-50s |\n",$1,$2/1024/1024,$3
-}
-END {
-printf "+-----------------------+-----------------+----------------------------------------------------+\n"
-}' ${tmp_dir}/.$$.tmp 2> /dev/null
-[ -f "${tmp_dir}/.$$.tmp" ] && rm -f ${tmp_dir}/.$$.tmp
+    mawk -F ";" '
+    BEGIN {
+    printf "+-----------------------+-----------------+----------------------------------------------------+\n"
+    printf "|     BACKUPSET         |       SIZE      |                    FILENAME                        |\n"
+    printf "+-----------------------+-----------------+----------------------------------------------------+\n"
+    }
+    {
+    printf "| %-21s | %12.3f MB | %-50s |\n",$1,$2/1024/1024,$3
+    }
+    END {
+    printf "+-----------------------+-----------------+----------------------------------------------------+\n"
+    }' ${tmp_dir}/.$$.tmp 2> /dev/null
+    [ -f "${tmp_dir}/.$$.tmp" ] && rm -f ${tmp_dir}/.$$.tmp
 
 }
 
 function f_logical_expire(){
 
-  log_location=${log_directory}/${cluster_name}/${mainjobdate}
-  [ -d "${log_location}" ] || mkdir -p ${log_location}
+    log_location=${log_directory}/${cluster_name}/${mainjobdate}
+    [ -d "${log_location}" ] || mkdir -p ${log_location}
 
-  if [ ! -z "${bkpset_input}" ]; then
-     backup_retention="${bkpset_input}"
-     backup_retention_method="custom"
-  fi
+    if [ ! -z "${bkpset_input}" ]; then
+        backup_retention="${bkpset_input}"
+        backup_retention_method="custom"
+    fi
 
-f_log info "${cluster_name}" "Cleaning backup with method : ${backup_retention} - value : ${backup_retention_method}"
-case ${backup_retention_method} in
-  count)
-   ((backup_retention++))
-   ls -1td ${backup_directory}/${cluster_name}/logical/  2>/dev/null| tail -n +${backup_retention_method}  | while read todelete
-   do
-     backupset=$(basename ${todelete})
-     f_log info ${cluster_name} "Dropping directory ${backupset}"
-     rm -frv ${todelete} >> ${log_location}/${backupset}_expire.log
-      if [ $? -eq 0 ]; then
-        f_log success ${cluster_name} "Backup directory ${todelete} dropped "
-      else
-        f_log failed ${cluster_name} "Backup directory ${todelete} not dropped "
-      fi
-     done
-  ;;
-  days)
- let MDATE=(${backup_retention}*24*60)
- if [ "${isverbose}" == "true" ]; then
-    f_log debug ${cluster_name} "Running : find ${backup_directory}/${cluster_name}/logical/ -type d -mmin +${MDATE}  ... "
- fi
- find ${backup_directory}/${cluster_name}/logical/ -type d  -mmin +${MDATE} | grep -v "xtrabackup\|mariabackup"  | while read todelete
+    f_log info "${cluster_name}" "Cleaning backup with method : ${backup_retention} - value : ${backup_retention_method}"
+    case ${backup_retention_method} in
+    count)
+    ((backup_retention++))
+    ls -1td ${backup_directory}/${cluster_name}/logical/  2>/dev/null| tail -n +${backup_retention_method}  | while read todelete
     do
-       backupset=$(basename ${todelete})
-       f_log info ${cluster_name} "Dropping directory ${backupset}"
-       rm -fr ${todelete} 2> /dev/null
+        backupset=$(basename ${todelete})
+        f_log info ${cluster_name} "Dropping directory ${backupset}"
+        rm -frv ${todelete} >> ${log_location}/${backupset}_expire.log
         if [ $? -eq 0 ]; then
-          f_log success ${cluster_name} "Directory ${backupset} dropped "
+            f_log success ${cluster_name} "Backup directory ${todelete} dropped "
         else
-          f_log failed ${cluster_name} "Directory ${backupset} not dropped "
+            f_log failed ${cluster_name} "Backup directory ${todelete} not dropped "
+        fi
+        done
+    ;;
+    days)
+    let MDATE=(${backup_retention}*24*60)
+    if [ "${isverbose}" == "true" ]; then
+        f_log debug ${cluster_name} "Running : find ${backup_directory}/${cluster_name}/logical/ -type d -mmin +${MDATE}  ... "
+    fi
+    find ${backup_directory}/${cluster_name}/logical/ -type d  -mmin +${MDATE} | grep -v "xtrabackup\|mariabackup"  | while read todelete
+        do
+        backupset=$(basename ${todelete})
+        f_log info ${cluster_name} "Dropping directory ${backupset}"
+        rm -fr ${todelete} 2> /dev/null
+            if [ $? -eq 0 ]; then
+            f_log success ${cluster_name} "Directory ${backupset} dropped "
+            else
+            f_log failed ${cluster_name} "Directory ${backupset} not dropped "
+            fi
+        done
+    ;;
+    custom)
+    find ${backup_directory}/${cluster_name}/logical/ -type d -name "*${bkpset_input}*"   | while read todelete
+    do
+    backupset=$(basename ${todelete})
+    f_log info ${cluster_name} "Dropping directory ${todelete}"
+        rm -fr ${todelete}  >> ${log_location}/${backupset}_expire.log 2>/dev/null
+        if [ $? -eq 0 ]; then
+        f_log success ${cluster_name} "Directory ${backupset} dropped "
+        else
+        f_log failed ${cluster_name} "Directory ${backupset} not dropped "
         fi
     done
- ;;
- custom)
-  find ${backup_directory}/${cluster_name}/logical/ -type d -name "*${bkpset_input}*"   | while read todelete
-  do
-   backupset=$(basename ${todelete})
-   f_log info ${cluster_name} "Dropping directory ${todelete}"
-    rm -fr ${todelete}  >> ${log_location}/${backupset}_expire.log 2>/dev/null
-    if [ $? -eq 0 ]; then
-      f_log success ${cluster_name} "Directory ${backupset} dropped "
-    else
-      f_log failed ${cluster_name} "Directory ${backupset} not dropped "
-    fi
-  done
-esac
+    esac
 }
 
 function f_compress_backup(){
-# Revision : OK
+    # Revision : OK
 
-backup_to_compress=${1}
-#backup_name=$(dirname ${backup_to_compress})
-find ${backup_to_compress} -type f -not -name "xtrabackup*" -not -name "backup-my*" | while read file ; do  bzip2 -sv $file >  ${log_location}/${bkp_label}_compression.log 2>&1 ; done
-if [ $? -eq 0 ]; then
-return_code=0
-else
- f_log warning ${cluster_name} "Compression failed , HINT : check  ${log_location}/${bkp_label}_compression.log "
-return_code=1
-fi
-return ${return_code}
+    backup_to_compress=${1}
+    #backup_name=$(dirname ${backup_to_compress})
+    find ${backup_to_compress} -type f -not -name "xtrabackup*" -not -name "backup-my*" | while read file ; do  bzip2 -sv $file >  ${log_location}/${bkp_label}_compression.log 2>&1 ; done
+    if [ $? -eq 0 ]; then
+    return_code=0
+    else
+    f_log warning ${cluster_name} "Compression failed , HINT : check  ${log_location}/${bkp_label}_compression.log "
+    return_code=1
+    fi
+    return ${return_code}
 }
 
 function f_physical_backup(){
-jobdate=$(date "+%Y%m%d-%H%M%S")
-################
-# Initialisation de la collection
-################
-cluster_name=${1}
-option=${2}
+    jobdate=$(date "+%Y%m%d-%H%M%S")
+    ################
+    # Initialisation de la collection
+    ################
+    cluster_name=${1}
+    option=${2}
 
 
-log_location=${log_directory}/${cluster_name}/${mainjobdate}
-data_file=${data_location}/${cluster_name}.db
-physical_backup_directory_arc=${backup_directory}/${cluster_name}/${physical_backup_tool}/archives
-physical_backup_directory_bkp=${backup_directory}/${cluster_name}/${physical_backup_tool}/backups
-[ -d "${log_location}" ] || mkdir -p ${log_location}
-[ -d "${data_location}" ] || mkdir -p ${data_location}
-[ -d "${physical_backup_directory_arc}" ] || mkdir -p ${physical_backup_directory_arc}
-[ -d "${physical_backup_directory_bkp}" ] || mkdir -p ${physical_backup_directory_bkp}
+    log_location=${log_directory}/${cluster_name}/${mainjobdate}
+    data_file=${data_location}/${cluster_name}.db
+    physical_backup_directory_arc=${backup_directory}/${cluster_name}/${physical_backup_tool}/archives
+    physical_backup_directory_bkp=${backup_directory}/${cluster_name}/${physical_backup_tool}/backups
+    [ -d "${log_location}" ] || mkdir -p ${log_location}
+    [ -d "${data_location}" ] || mkdir -p ${data_location}
+    [ -d "${physical_backup_directory_arc}" ] || mkdir -p ${physical_backup_directory_arc}
+    [ -d "${physical_backup_directory_bkp}" ] || mkdir -p ${physical_backup_directory_bkp}
 
 
 
-f_test_connection ${cluster_name}
+    f_test_connection ${cluster_name}
 
 
-if [ "${option}" == "auto" ]; then
-    case "$(date +%w)" in
-        0) option="full";;
-        3) option="diff";;
-        *) option="incr";;
-    esac
-fi
+    if [ "${option}" == "auto" ]; then
+        case "$(date +%w)" in
+            0) option="full";;
+            3) option="diff";;
+            *) option="incr";;
+        esac
+    fi
 
 
-case ${option} in
-info)
-f_physical_info
-exit 0
-;;
-expire)
-  f_physical_expire
-  exit 0
-;;
-catalog)
-f_physical_catalog_archivelog
-exit 0
-;;
-archivelog)
-  f_physical_arcbinlog
-  exit 0
-  ;;
-arclist)
-  f_physical_info_arcbinlog
-  exit 0
-  ;;
-full)
-    bkp_label=$(date "+%Y%m%d-%H%M%SF")
-    bkp_type="full"
+    case ${option} in
+    info)
+    f_physical_info
+    exit 0
     ;;
-diff)
-  while read bkp_last_dir
-  do
-    if [ ! -d "${bkp_last_dir}"  ] || [ ! -f "${bkp_last_dir}/${xtrabackupchk}"  ] || [ ! -f "${bkp_last_dir}/${xtrabackupinfo}"  ]; then
-        continue
-    else
-      bkp_label=$(basename ${bkp_last_dir})_$(date "+%Y%m%d-%H%M%SD")
-      incremental_info="--incremental-basedir=${bkp_last_dir}"
-      bkp_type="diff"
-      break
+    expire)
+    f_physical_expire
+    exit 0
+    ;;
+    catalog)
+    f_physical_catalog_archivelog
+    exit 0
+    ;;
+    archivelog)
+    f_physical_arcbinlog
+    exit 0
+    ;;
+    arclist)
+    f_physical_info_arcbinlog
+    exit 0
+    ;;
+    full)
+        bkp_label=$(date "+%Y%m%d-%H%M%SF")
+        bkp_type="full"
+        ;;
+    diff)
+    while read bkp_last_dir
+    do
+        if [ ! -d "${bkp_last_dir}"  ] || [ ! -f "${bkp_last_dir}/${xtrabackupchk}"  ] || [ ! -f "${bkp_last_dir}/${xtrabackupinfo}"  ]; then
+            continue
+        else
+        bkp_label=$(basename ${bkp_last_dir})_$(date "+%Y%m%d-%H%M%SD")
+        incremental_info="--incremental-basedir=${bkp_last_dir}"
+        bkp_type="diff"
+        break
+        fi
+    done <<< $(ls -1td  ${physical_backup_directory_bkp}/*F   2> /dev/null )
+    ;;
+    incr)
+    while read bkp_last_dir
+    do
+        if [ ! -d "${bkp_last_dir}"  ] || [ ! -f "${bkp_last_dir}/${xtrabackupchk}"  ] || [ ! -f "${bkp_last_dir}/${xtrabackupinfo}"  ]; then
+            continue
+        else
+        bkp_label=$(basename ${bkp_last_dir})_$(date "+%Y%m%d-%H%M%SI")
+        incremental_info="--incremental-basedir=${bkp_last_dir}"
+        bkp_type="incr"
+        break
+        fi
+    done <<< $(ls -1td  ${physical_backup_directory_bkp}/*  2> /dev/null )
+    ;;
+    *)
+    f_log info ${cluster_name}  "Option ${option} not available ..."
+    f_usage
+    ;;
+    esac
+    if [  -z "${bkp_type}"  ]; then
+    bkp_type="full"
+    bkp_label=$(date "+%Y%m%d-%H%M%SF")
+    incremental_info=""
     fi
- done <<< $(ls -1td  ${physical_backup_directory_bkp}/*F   2> /dev/null )
-;;
-incr)
-  while read bkp_last_dir
-  do
-    if [ ! -d "${bkp_last_dir}"  ] || [ ! -f "${bkp_last_dir}/${xtrabackupchk}"  ] || [ ! -f "${bkp_last_dir}/${xtrabackupinfo}"  ]; then
-        continue
-    else
-       bkp_label=$(basename ${bkp_last_dir})_$(date "+%Y%m%d-%H%M%SI")
-       incremental_info="--incremental-basedir=${bkp_last_dir}"
-       bkp_type="incr"
-       break
+
+
+    f_log info ${cluster_name}  "Initiate Backup with ${physical_backup_tool} "
+
+
+    f_log info ${cluster_name}  "Launching Backup ${bkp_type} with label : ${bkp_label} "
+    start_date=$(date "+%s")
+    bkp_path=${physical_backup_directory_bkp}/${bkp_label}
+    mkdir -p ${bkp_path}
+    if [ "${isverbose}" == "true" ]; then
+        f_log debug ${cluster_name} "Running : ${physical_backup_tool} ${dsn_info} ${physical_backup_tool_options} --backup  --datadir=${datadir}  ${incremental_info} --target-dir=${bkp_path}  ... "
     fi
- done <<< $(ls -1td  ${physical_backup_directory_bkp}/*  2> /dev/null )
-;;
-*)
-f_log info ${cluster_name}  "Option ${option} not available ..."
-f_usage
-;;
-esac
-if [  -z "${bkp_type}"  ]; then
-bkp_type="full"
-bkp_label=$(date "+%Y%m%d-%H%M%SF")
-incremental_info=""
-fi
-
-
-f_log info ${cluster_name}  "Initiate Backup with ${physical_backup_tool} "
-
-
-f_log info ${cluster_name}  "Launching Backup ${bkp_type} with label : ${bkp_label} "
-start_date=$(date "+%s")
-bkp_path=${physical_backup_directory_bkp}/${bkp_label}
-mkdir -p ${bkp_path}
- if [ "${isverbose}" == "true" ]; then
-    f_log debug ${cluster_name} "Running : ${physical_backup_tool} ${dsn_info} ${physical_backup_tool_options} --backup  --datadir=${datadir}  ${incremental_info} --target-dir=${bkp_path}  ... "
-fi
-   datadir=$( mysql ${dsn_info} -sNe "select @@datadir" 2>/dev/null )
- ${physical_backup_tool} ${dsn_info} ${physical_backup_tool_options} --backup  --datadir=${datadir}  ${incremental_info} --target-dir=${bkp_path}  >> ${log_location}/${bkp_label}_backup.log 2>&1
-          f_log info ${cluster_name} "Backup ${bkp_type} tag ${bkp_label} done , checking log  ... "
-          f_confirm_log ${log_location}/${bkp_label}_backup.log
-          if [ $? -eq 0 ]; then
-             f_log success ${cluster_name} "Backup ${bkp_type} tag ${bkp_label} "
-             datadirsize=$(du -sb  ${datadir} | cut -f 1 )
-             bkp_start_lsn=$(cat ${bkp_path}/${xtrabackupchk} | mawk -F"=" '/from_lsn/ {print $2}' | sed -e 's/ //')
-             bkp_lsn=$(cat ${bkp_path}/${xtrabackupchk} | mawk -F"=" '/last_lsn/ {print $2}' | sed -e 's/ //')
-             start_date=$(cat ${bkp_path}/${xtrabackupinfo} | mawk -F"=" '/start_time/ {print $2}' | sed -e 's/ //')
-             end_date=$(cat ${bkp_path}/${xtrabackupinfo} | mawk -F"=" '/end_time/ {print $2}' | sed -e 's/ //')
-             bkp_binlog_info=$(cat ${bkp_path}/${xtrabackupinfo} | mawk -F"=" '/binlog_pos/ {print $2}' | sed -e 's/ //')
-             binlog=$(echo "${bkp_binlog_info}" | mawk '{print $2}' |  sed -e "s/'//g;s/,//g")
-             pos=$(echo "${bkp_binlog_info}" | mawk '{print $4}' |  sed -e "s/'//g;s/,//g")
-             fullsize=$(du -sb ${bkp_path} | cut -f 1)
-             f_log info ${cluster_name} "Compressing Backup ${bkp_label} "
-             f_compress_backup ${bkp_path}
-             if [ $? -eq 0 ]; then
-                f_log success ${cluster_name} "Backup ${bkp_label} compressed "
-             else
-                f_log failed ${cluster_name} "Backup ${bkp_label} not compressed"
-             fi
-
-             bkpdirsize=$(du -sb ${bkp_path} | cut -f 1)
-             bkpfssize=$(df -B1  ${backup_directory}  | grep /dev | mawk '{print $2}')
-
-
-              if [ "${with_arclog}" == "true" ]; then
-              f_physical_arcbinlog
-              fi
-
-              if [ "${with_conf}" == "true" ]; then
-              f_configuration_backup
-              fi
-             exit 0
-          else
-                end_date=$(date "+%s")
-                f_log failed ${cluster_name} "Backup ${bkp_type} tag ${bkp_label} , HINT check : ${log_location}/${bkp_label}_backup.log "
-                rm -fr ${bkp_path}
+    datadir=$( mysql ${dsn_info} -sNe "select @@datadir" 2>/dev/null )
+    ${physical_backup_tool} ${dsn_info} ${physical_backup_tool_options} --backup  --datadir=${datadir}  ${incremental_info} --target-dir=${bkp_path}  >> ${log_location}/${bkp_label}_backup.log 2>&1
+            f_log info ${cluster_name} "Backup ${bkp_type} tag ${bkp_label} done , checking log  ... "
+            f_confirm_log ${log_location}/${bkp_label}_backup.log
+            if [ $? -eq 0 ]; then
+                f_log success ${cluster_name} "Backup ${bkp_type} tag ${bkp_label} "
+                datadirsize=$(du -sb  ${datadir} | cut -f 1 )
+                bkp_start_lsn=$(cat ${bkp_path}/${xtrabackupchk} | mawk -F"=" '/from_lsn/ {print $2}' | sed -e 's/ //')
+                bkp_lsn=$(cat ${bkp_path}/${xtrabackupchk} | mawk -F"=" '/last_lsn/ {print $2}' | sed -e 's/ //')
+                start_date=$(cat ${bkp_path}/${xtrabackupinfo} | mawk -F"=" '/start_time/ {print $2}' | sed -e 's/ //')
+                end_date=$(cat ${bkp_path}/${xtrabackupinfo} | mawk -F"=" '/end_time/ {print $2}' | sed -e 's/ //')
+                bkp_binlog_info=$(cat ${bkp_path}/${xtrabackupinfo} | mawk -F"=" '/binlog_pos/ {print $2}' | sed -e 's/ //')
+                binlog=$(echo "${bkp_binlog_info}" | mawk '{print $2}' |  sed -e "s/'//g;s/,//g")
+                pos=$(echo "${bkp_binlog_info}" | mawk '{print $4}' |  sed -e "s/'//g;s/,//g")
+                fullsize=$(du -sb ${bkp_path} | cut -f 1)
+                f_log info ${cluster_name} "Compressing Backup ${bkp_label} "
+                f_compress_backup ${bkp_path}
                 if [ $? -eq 0 ]; then
-                  f_log warning ${cluster_name} "Backup ${bkp_type} tag ${bkp_label} with path : ${bkp_path} dropped "
+                    f_log success ${cluster_name} "Backup ${bkp_label} compressed "
                 else
-                  f_log failed ${cluster_name} "Backup ${bkp_type} tag ${bkp_label} with path : ${bkp_path} not dropped "
+                    f_log failed ${cluster_name} "Backup ${bkp_label} not compressed"
                 fi
 
-             exit 2
-          fi
+                bkpdirsize=$(du -sb ${bkp_path} | cut -f 1)
+                bkpfssize=$(df -B1  ${backup_directory}  | grep /dev | mawk '{print $2}')
+
+
+                if [ "${with_arclog}" == "true" ]; then
+                f_physical_arcbinlog
+                fi
+
+                if [ "${with_conf}" == "true" ]; then
+                f_configuration_backup
+                fi
+                exit 0
+            else
+                    end_date=$(date "+%s")
+                    f_log failed ${cluster_name} "Backup ${bkp_type} tag ${bkp_label} , HINT check : ${log_location}/${bkp_label}_backup.log "
+                    rm -fr ${bkp_path}
+                    if [ $? -eq 0 ]; then
+                    f_log warning ${cluster_name} "Backup ${bkp_type} tag ${bkp_label} with path : ${bkp_path} dropped "
+                    else
+                    f_log failed ${cluster_name} "Backup ${bkp_type} tag ${bkp_label} with path : ${bkp_path} not dropped "
+                    fi
+
+                exit 2
+            fi
 }
 
 function f_physical_info(){
 
+    ls -1tdr ${physical_backup_directory_bkp}/* 2>/dev/null| while read backupset
+    do
+    if [ -f "${backupset}/${xtrabackupchk}"  ] && [ -f "${backupset}/${xtrabackupinfo}"  ] ; then
+    t=$(echo $(basename ${backupset}) | mawk -F"_" '{ if ($1 == $NF) {print $1 } else {print $NF " based on " $1 }}')
+    s=$(du -sh ${backupset} | mawk '{print $1}')
+    bkp_lsn=$(cat ${backupset}/${xtrabackupchk} | mawk -F"=" '/last_lsn/ {print $2}' | sed -e 's/ //')
+    start_date=$(cat ${backupset}/${xtrabackupinfo} | mawk -F"=" '/start_time/ {print $2}' | sed -e 's/ //')
+    end_date=$(cat ${backupset}/${xtrabackupinfo} | mawk -F"=" '/end_time/ {print $2}' | sed -e 's/ //')
+    bkp_binlog_info=$(cat ${backupset}/${xtrabackupinfo} | mawk -F"=" '/binlog_pos/ {print $2}' | sed -e 's/ //')
+    binlog=$(echo "${bkp_binlog_info}" | mawk '{print $2}' |  sed -e "s/'//g;s/,//g")
+    pos=$(echo "${bkp_binlog_info}" | mawk '{print $4}' |  sed -e "s/'//g;s/,//g")
+    echo "$t;$s;$start_date;$end_date;$binlog;$pos" >> ${tmp_dir}/.$$.tmp
+    fi
+    done
 
-ls -1tdr ${physical_backup_directory_bkp}/* 2>/dev/null| while read backupset
-do
- if [ -f "${backupset}/${xtrabackupchk}"  ] && [ -f "${backupset}/${xtrabackupinfo}"  ] ; then
- t=$(echo $(basename ${backupset}) | mawk -F"_" '{ if ($1 == $NF) {print $1 } else {print $NF " based on " $1 }}')
- s=$(du -sh ${backupset} | mawk '{print $1}')
- bkp_lsn=$(cat ${backupset}/${xtrabackupchk} | mawk -F"=" '/last_lsn/ {print $2}' | sed -e 's/ //')
- start_date=$(cat ${backupset}/${xtrabackupinfo} | mawk -F"=" '/start_time/ {print $2}' | sed -e 's/ //')
- end_date=$(cat ${backupset}/${xtrabackupinfo} | mawk -F"=" '/end_time/ {print $2}' | sed -e 's/ //')
- bkp_binlog_info=$(cat ${backupset}/${xtrabackupinfo} | mawk -F"=" '/binlog_pos/ {print $2}' | sed -e 's/ //')
- binlog=$(echo "${bkp_binlog_info}" | mawk '{print $2}' |  sed -e "s/'//g;s/,//g")
- pos=$(echo "${bkp_binlog_info}" | mawk '{print $4}' |  sed -e "s/'//g;s/,//g")
- echo "$t;$s;$start_date;$end_date;$binlog;$pos" >> ${tmp_dir}/.$$.tmp
-fi
-done
-
-mawk -F ";" '
-BEGIN {
-printf "+---------------------------------------------+------------+-----------------------+-----------------------+------------------------------------------+\n"
-printf "|                 BACKUPSET                   |    SIZE    |       START_DATE      |       END_DATE        |                   BINLOG                 |\n"
-printf "+---------------------------------------------+------------+-----------------------+-----------------------+------------------------------------------+\n"
-}
-{
-printf "| %-43s | %10s | %21s | %21s | %-40s |\n",$1,$2,$3,$4,$5
-}
-END {
-printf "+---------------------------------------------+------------+-----------------------+-----------------------+------------------------------------------+\n"
-}' ${tmp_dir}/.$$.tmp 2> /dev/null
-[ -f "${tmp_dir}/.$$.tmp" ] && rm -f ${tmp_dir}/.$$.tmp
+    mawk -F ";" '
+    BEGIN {
+    printf "+---------------------------------------------+------------+-----------------------+-----------------------+------------------------------------------+\n"
+    printf "|                 BACKUPSET                   |    SIZE    |       START_DATE      |       END_DATE        |                   BINLOG                 |\n"
+    printf "+---------------------------------------------+------------+-----------------------+-----------------------+------------------------------------------+\n"
+    }
+    {
+    printf "| %-43s | %10s | %21s | %21s | %-40s |\n",$1,$2,$3,$4,$5
+    }
+    END {
+    printf "+---------------------------------------------+------------+-----------------------+-----------------------+------------------------------------------+\n"
+    }' ${tmp_dir}/.$$.tmp 2> /dev/null
+    [ -f "${tmp_dir}/.$$.tmp" ] && rm -f ${tmp_dir}/.$$.tmp
 
 }
 
 function f_physical_arcbinlog(){
-i=0
+    i=0
 
-f_test_connection ${cluster_name}
+    f_test_connection ${cluster_name}
 
-archive_mode=$(mysql ${dsn_info} -sNe "select @@log_bin" 2>/dev/null )
+    archive_mode=$(mysql ${dsn_info} -sNe "select @@log_bin" 2>/dev/null )
 
-if [ ${archive_mode} -eq 1 ]; then
- f_log info ${cluster_name} "Binlog Mode is enabled"
- archive_index=$(mysql ${dsn_info} -sNe "select @@log_bin_index" 2>/dev/null )
- if [ $? -eq 0 ]; then
-  f_log info ${cluster_name} "Launching Binlog Rotation "
-  if [ "${isverbose}" == "true" ]; then
-             f_log debug ${cluster_name} "Running : mysql ${dsn_info} -sNe \"flush binary logs\"  ... "
-  fi
-  mysql ${dsn_info} -sNe "flush binary logs"
-  cat ${archive_index} | grep -v $(mysql ${dsn_info} -sNe "show binary logs" 2>/dev/null | mawk '{} END {print $1}') | while read binlog
-  do
+    if [ ${archive_mode} -eq 1 ]; then
+    f_log info ${cluster_name} "Binlog Mode is enabled"
+    archive_index=$(mysql ${dsn_info} -sNe "select @@log_bin_index" 2>/dev/null )
+    if [ $? -eq 0 ]; then
+    f_log info ${cluster_name} "Launching Binlog Rotation "
+    if [ "${isverbose}" == "true" ]; then
+                f_log debug ${cluster_name} "Running : mysql ${dsn_info} -sNe \"flush binary logs\"  ... "
+    fi
+    mysql ${dsn_info} -sNe "flush binary logs"
+    cat ${archive_index} | grep -v $(mysql ${dsn_info} -sNe "show binary logs" 2>/dev/null | mawk '{} END {print $1}') | while read binlog
+    do
 
-     binlog_sum=$(md5sum  ${binlog} | mawk '{print $1}' )
-     if [ ! -f ${physical_backup_directory_arc}/${binlog_sum}.arc ] ; then
+        binlog_sum=$(md5sum  ${binlog} | mawk '{print $1}' )
+        if [ ! -f ${physical_backup_directory_arc}/${binlog_sum}.arc ] ; then
 
-          if [ "${isverbose}" == "true" ]; then
-             f_log debug ${cluster_name} "Running : cp -pvu ${binlog} ${physical_backup_directory_arc}/$(basename ${binlog})  ... "
-          fi
-          cp -pvu ${binlog} ${physical_backup_directory_arc}/${binlog_sum}.arc >>  ${log_location}/arcbinlog_backup.log 2>&1
-          if [ $? -ne 0 ]; then
-            f_log failed ${cluster_name} "Failed to archive  $(basename ${binlog}), HINT: check ${log_location}/arcbinlog_backup.log "
-          fi
-          f_log info ${cluster_name} "Binlog $(basename ${binlog}) backuped  "
-          chksum=$(md5sum ${physical_backup_directory_arc}/${binlog_sum}.arc | mawk '{print $1}' )
-          info=$(mysqlbinlog ${physical_backup_directory_arc}/${binlog_sum}.arc | grep end_log_pos | mawk 'NR==1 { begin=$1" "$2";"$7}END{print begin";"$1" "$2";"$7}' | sed -e 's/#//g'   )
-          begin=$(date -d "$(echo ${info} | cut -d ";" -f 1 )" +"%Y-%m-%d %H:%M:%S" )
-          size=$(du  -sh  ${physical_backup_directory_arc}/${binlog_sum}.arc | cut -f 1 )
-          end=$(date -d "$(echo ${info} | cut -d ";" -f 3 )" +"%Y-%m-%d %H:%M:%S" )
+            if [ "${isverbose}" == "true" ]; then
+                f_log debug ${cluster_name} "Running : cp -pvu ${binlog} ${physical_backup_directory_arc}/$(basename ${binlog})  ... "
+            fi
+            cp -pvu ${binlog} ${physical_backup_directory_arc}/${binlog_sum}.arc >>  ${log_location}/arcbinlog_backup.log 2>&1
+            if [ $? -ne 0 ]; then
+                f_log failed ${cluster_name} "Failed to archive  $(basename ${binlog}), HINT: check ${log_location}/arcbinlog_backup.log "
+            fi
+            f_log info ${cluster_name} "Binlog $(basename ${binlog}) backuped  "
+            chksum=$(md5sum ${physical_backup_directory_arc}/${binlog_sum}.arc | mawk '{print $1}' )
+            info=$(mysqlbinlog ${physical_backup_directory_arc}/${binlog_sum}.arc | grep end_log_pos | mawk 'NR==1 { begin=$1" "$2";"$7}END{print begin";"$1" "$2";"$7}' | sed -e 's/#//g'   )
+            begin=$(date -d "$(echo ${info} | cut -d ";" -f 1 )" +"%Y-%m-%d %H:%M:%S" )
+            size=$(du  -sh  ${physical_backup_directory_arc}/${binlog_sum}.arc | cut -f 1 )
+            end=$(date -d "$(echo ${info} | cut -d ";" -f 3 )" +"%Y-%m-%d %H:%M:%S" )
 
-          if [ "${binlog_sum}" == "${chksum}" ]; then
-                grep ${chksum} ${physical_backup_directory_arc}/catalog > /dev/null 2>&1
-                if [ $? -eq 0 ]; then
-                  f_log info ${cluster_name} "Binlog $(basename ${binlog}) already catalogued "
-                  continue
-                  else
-                   echo "$(date +%Y%m%d%H%M%S);${chksum}.arc;$(basename ${binlog});${begin};${end};${size}" >> ${physical_backup_directory_arc}/catalog
-                   f_log info ${cluster_name} "Binlog $(basename ${binlog}) added to catalog "
-                fi
-           else
-            f_log warning ${cluster_name} "Binlog $(basename ${binlog}) probably corrupted because sum between source and target mismatch"
-            continue
-          fi
-     else
+            if [ "${binlog_sum}" == "${chksum}" ]; then
+                    grep ${chksum} ${physical_backup_directory_arc}/catalog > /dev/null 2>&1
+                    if [ $? -eq 0 ]; then
+                    f_log info ${cluster_name} "Binlog $(basename ${binlog}) already catalogued "
+                    continue
+                    else
+                    echo "$(date +%Y%m%d%H%M%S);${chksum}.arc;$(basename ${binlog});${begin};${end};${size}" >> ${physical_backup_directory_arc}/catalog
+                    f_log info ${cluster_name} "Binlog $(basename ${binlog}) added to catalog "
+                    fi
+            else
+                f_log warning ${cluster_name} "Binlog $(basename ${binlog}) probably corrupted because sum between source and target mismatch"
+                continue
+            fi
+        else
 
-          chksum=$(md5sum ${physical_backup_directory_arc}/${binlog_sum}.arc | mawk '{print $1}' )
-          info=$(mysqlbinlog ${physical_backup_directory_arc}/${binlog_sum}.arc | grep end_log_pos | mawk 'NR==1 { begin=$1" "$2";"$7}END{print begin";"$1" "$2";"$7}' | sed -e 's/#//g'   )
-          begin=$(date -d "$(echo ${info} | cut -d ";" -f 1 )" +"%Y-%m-%d %H:%M:%S" )
-          bpos=$(echo ${info} | cut -d ";" -f 2 )
-          size=$(du  -sh  ${physical_backup_directory_arc}/${binlog_sum}.arc | cut -f 1 )
-          end=$(date -d "$(echo ${info} | cut -d ";" -f 3 )" +"%Y-%m-%d %H:%M:%S" )
-          if [ "${binlog_sum}" == "${chksum}" ]; then
-                grep ${chksum} ${physical_backup_directory_arc}/catalog > /dev/null 2>&1
-                if [ $? -eq 0 ]; then
-                  f_log info ${cluster_name} "Binlog $(basename ${binlog}) already backuped and catalogued "
-                  continue
-                  else
-                   echo "$(date +%Y%m%d%H%M%S);${chksum}.arc;$(basename ${binlog});${begin};${end};${size}" >> ${physical_backup_directory_arc}/catalog
-                   f_log info ${cluster_name} "Binlog $(basename ${binlog}) already backuped and added to catalog "
-                fi
-           else
-            f_log warning ${cluster_name} "Binlog $(basename ${binlog}) probably corrupted because sum between source and target mismatch"
-            continue
-          fi
-       fi
+            chksum=$(md5sum ${physical_backup_directory_arc}/${binlog_sum}.arc | mawk '{print $1}' )
+            info=$(mysqlbinlog ${physical_backup_directory_arc}/${binlog_sum}.arc | grep end_log_pos | mawk 'NR==1 { begin=$1" "$2";"$7}END{print begin";"$1" "$2";"$7}' | sed -e 's/#//g'   )
+            begin=$(date -d "$(echo ${info} | cut -d ";" -f 1 )" +"%Y-%m-%d %H:%M:%S" )
+            bpos=$(echo ${info} | cut -d ";" -f 2 )
+            size=$(du  -sh  ${physical_backup_directory_arc}/${binlog_sum}.arc | cut -f 1 )
+            end=$(date -d "$(echo ${info} | cut -d ";" -f 3 )" +"%Y-%m-%d %H:%M:%S" )
+            if [ "${binlog_sum}" == "${chksum}" ]; then
+                    grep ${chksum} ${physical_backup_directory_arc}/catalog > /dev/null 2>&1
+                    if [ $? -eq 0 ]; then
+                    f_log info ${cluster_name} "Binlog $(basename ${binlog}) already backuped and catalogued "
+                    continue
+                    else
+                    echo "$(date +%Y%m%d%H%M%S);${chksum}.arc;$(basename ${binlog});${begin};${end};${size}" >> ${physical_backup_directory_arc}/catalog
+                    f_log info ${cluster_name} "Binlog $(basename ${binlog}) already backuped and added to catalog "
+                    fi
+            else
+                f_log warning ${cluster_name} "Binlog $(basename ${binlog}) probably corrupted because sum between source and target mismatch"
+                continue
+            fi
+        fi
 
-  done
- fi
-else
-f_log info ${cluster_name} "Binlog Mode is disabled . Exit "
-fi
+    done
+    fi
+    else
+    f_log info ${cluster_name} "Binlog Mode is disabled . Exit "
+    fi
 
 }
 
 function f_configuration_backup(){
 
-local jobdate=$(date "+%H%M%S")
-f_test_connection ${cluster_name}
+    local jobdate=$(date "+%H%M%S")
+    f_test_connection ${cluster_name}
 
-f_log info ${cluster_name} "Backuping configuration file ... "
+    f_log info ${cluster_name} "Backuping configuration file ... "
 
-backup_location=${backup_directory}/${cluster_name}/logical/${mainjobdate}
-log_location=${log_directory}/${cluster_name}/${mainjobdate}
-data_file=${data_location}/${cluster_name}.db
+    backup_location=${backup_directory}/${cluster_name}/logical/${mainjobdate}
+    log_location=${log_directory}/${cluster_name}/${mainjobdate}
+    data_file=${data_location}/${cluster_name}.db
 
-#[ -d "${backup_location}" ] || mkdir -p ${backup_location}  ; chown postgres:postgres -R ${backup_location}
-[ -d "${backup_location}" ] || mkdir -p ${backup_location}
-[ -d "${log_location}" ] || mkdir -p ${log_location}
-[ -d "${data_location}" ] || mkdir -p ${data_location}
+    #[ -d "${backup_location}" ] || mkdir -p ${backup_location}  ; chown postgres:postgres -R ${backup_location}
+    [ -d "${backup_location}" ] || mkdir -p ${backup_location}
+    [ -d "${log_location}" ] || mkdir -p ${log_location}
+    [ -d "${data_location}" ] || mkdir -p ${data_location}
 
-mysql ${dsn_info} -sNe 'show global variables' 2>/dev/null | mawk -v VERS=${version} 'BEGIN { printf "# --------------------------- #\n# Backup by mybackrest Vers %s\n# --------------------------- # ",VERS   }
-{
-if ($1 == "socket")  {print $1 " = " $2  }
-if ($1 == "port")   {print $1 " = " $2  }
-if ($1 == "pid-file")  {print $1 " = " $2  }
-if ($1 == "datadir")   {print $1 " = " $2  }
-if ($1 == "user")  {print $1 " = " $2  }
-if ($1 == "bind-address")  {print $1 " = " $2  }
-if ($1 == "log-error")  {print $1 " = " $2  }
-if ($1 == "general_log")  {print $1 " = " $2  }
-if ($1 == "general_log_file")  {print $1 " = " $2  }
-if ($1 == "slow_query_log")  {print $1 " = " $2  }
-if ($1 == "slow_query_log_file")  {print $1 " = " $2  }
-if ($1 == "innodb_buffer_pool_size")  {print $1 " = " $2  }
-if ($1 == "innodb_log_file_size")  {print $1 " = " $2  }
-if ($1 == "innodb_file_per_table")  {print $1 " = " $2  }
-if ($1 == "log_bin_basename")  {print  " log-bin = " $2  }
-if ($1 == "binlog_format")  {print $1 " = " $2  }
-if ($1 == "expire_logs_days")  {print $1 " = " $2  }
-if ($1 == "max_binlog_size")  {print $1 " = " $2  }
-}
-END {  printf "\n # ---------------------- # \n"  }' > ${backup_location}/${cluster_name}_${jobdate}.cnf.bkp
+    mysql ${dsn_info} -sNe 'show global variables' 2>/dev/null | mawk -v VERS=${version} 'BEGIN { printf "# --------------------------- #\n# Backup by mybackrest Vers %s\n# --------------------------- # ",VERS   }
+    {
+    if ($1 == "socket")  {print $1 " = " $2  }
+    if ($1 == "port")   {print $1 " = " $2  }
+    if ($1 == "pid-file")  {print $1 " = " $2  }
+    if ($1 == "datadir")   {print $1 " = " $2  }
+    if ($1 == "user")  {print $1 " = " $2  }
+    if ($1 == "bind-address")  {print $1 " = " $2  }
+    if ($1 == "log-error")  {print $1 " = " $2  }
+    if ($1 == "general_log")  {print $1 " = " $2  }
+    if ($1 == "general_log_file")  {print $1 " = " $2  }
+    if ($1 == "slow_query_log")  {print $1 " = " $2  }
+    if ($1 == "slow_query_log_file")  {print $1 " = " $2  }
+    if ($1 == "innodb_buffer_pool_size")  {print $1 " = " $2  }
+    if ($1 == "innodb_log_file_size")  {print $1 " = " $2  }
+    if ($1 == "innodb_file_per_table")  {print $1 " = " $2  }
+    if ($1 == "log_bin_basename")  {print  " log-bin = " $2  }
+    if ($1 == "binlog_format")  {print $1 " = " $2  }
+    if ($1 == "expire_logs_days")  {print $1 " = " $2  }
+    if ($1 == "max_binlog_size")  {print $1 " = " $2  }
+    }
+    END {  printf "\n # ---------------------- # \n"  }' > ${backup_location}/${cluster_name}_${jobdate}.cnf.bkp
 
-if [ -f "${backup_location}/${cluster_name}_${jobdate}.cnf.bkp" ]; then
-   f_log success ${cluster_name} "Configuration file backuped  "
-else
-   f_log warning ${cluster_name} "Configuration file not backuped  "
-fi
+    if [ -f "${backup_location}/${cluster_name}_${jobdate}.cnf.bkp" ]; then
+    f_log success ${cluster_name} "Configuration file backuped  "
+    else
+    f_log warning ${cluster_name} "Configuration file not backuped  "
+    fi
 }
 
 function f_physical_catalog_archivelog(){
 
-ls -1tr ${physical_backup_directory_arc}/*.arc | while read binlog_to_catalog
-do
-new_binlog_name="${cluster_name}-binlog_$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 6| head -n 1)"
-chksum=$(basename ${binlog_to_catalog})
-info=$(mysqlbinlog ${binlog_to_catalog} | grep end_log_pos | mawk 'NR==1 { begin=$1" "$2";"$7}END{print begin";"$1" "$2";"$7}' | sed -e 's/#//g'   )
-begin=$(date -d "$(echo ${info} | cut -d ";" -f 1 )" +"%Y-%m-%d %H:%M:%S" )
-end=$(date -d "$(echo ${info} | cut -d ";" -f 3 )" +"%Y-%m-%d %H:%M:%S" )
-size=$(du  -sh  ${binlog_to_catalog} | cut -f 1 )
-grep ${chksum} ${physical_backup_directory_arc}/catalog > /dev/null 2>&1
-                if [ $? -eq 0 ]; then
-                  f_log info ${cluster_name} "Binlog $(basename ${binlog_to_catalog}) already catalogued "
-                  continue
-                else
-                   echo "$(date +%Y%m%d%H%M%S);${chksum};${new_binlog_name};${begin};${end};${size}" >> ${physical_backup_directory_arc}/catalog
-                   f_log info ${cluster_name} "Binlog ${new_binlog_name} added to catalog "
-                fi
+    ls -1tr ${physical_backup_directory_arc}/*.arc | while read binlog_to_catalog
+    do
+    new_binlog_name="${cluster_name}-binlog_$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 6| head -n 1)"
+    chksum=$(basename ${binlog_to_catalog})
+    info=$(mysqlbinlog ${binlog_to_catalog} | grep end_log_pos | mawk 'NR==1 { begin=$1" "$2";"$7}END{print begin";"$1" "$2";"$7}' | sed -e 's/#//g'   )
+    begin=$(date -d "$(echo ${info} | cut -d ";" -f 1 )" +"%Y-%m-%d %H:%M:%S" )
+    end=$(date -d "$(echo ${info} | cut -d ";" -f 3 )" +"%Y-%m-%d %H:%M:%S" )
+    size=$(du  -sh  ${binlog_to_catalog} | cut -f 1 )
+    grep ${chksum} ${physical_backup_directory_arc}/catalog > /dev/null 2>&1
+                    if [ $? -eq 0 ]; then
+                    f_log info ${cluster_name} "Binlog $(basename ${binlog_to_catalog}) already catalogued "
+                    continue
+                    else
+                    echo "$(date +%Y%m%d%H%M%S);${chksum};${new_binlog_name};${begin};${end};${size}" >> ${physical_backup_directory_arc}/catalog
+                    f_log info ${cluster_name} "Binlog ${new_binlog_name} added to catalog "
+                    fi
 
-done
+    done
 }
 
 function f_physical_info_arcbinlog(){
 
-if [ -f "${physical_backup_directory_arc}/catalog" ]; then
-  cat ${physical_backup_directory_arc}/catalog > ${tmp_dir}/.$$.tmp
-  mawk -F ";" -v PATH=${physical_backup_directory_arc} '
-  BEGIN {
-  printf "+--------------------+---------------------------------------------+------------+-----------------------+-----------------------+------------------------------------------+\n"
-  printf "|     BACKUP_JOB     |               ARCHIVE BINLOG                |    SIZE    |       START_DATE      |        END_DATE       |                   BINLOG                 |\n"
-  printf "+--------------------+---------------------------------------------+------------+-----------------------+-----------------------+------------------------------------------+\n"
-  }
-  {
-  printf "| %-18s | %-43s | %10s | %21s | %21s | %-40s |\n",$1,$2,$6,$4,$5,$3
-  }
-  END {
-  printf "+--------------------+---------------------------------------------+------------+-----------------------+-----------------------+------------------------------------------+\n"
-  }' ${tmp_dir}/.$$.tmp  && rm -f ${tmp_dir}/.$$.tmp
-else
-  f_log warning "${cluster_name}" "No catalog to consult"
-fi
+    if [ -f "${physical_backup_directory_arc}/catalog" ]; then
+    cat ${physical_backup_directory_arc}/catalog > ${tmp_dir}/.$$.tmp
+    mawk -F ";" -v PATH=${physical_backup_directory_arc} '
+    BEGIN {
+    printf "+--------------------+---------------------------------------------+------------+-----------------------+-----------------------+------------------------------------------+\n"
+    printf "|     BACKUP_JOB     |               ARCHIVE BINLOG                |    SIZE    |       START_DATE      |        END_DATE       |                   BINLOG                 |\n"
+    printf "+--------------------+---------------------------------------------+------------+-----------------------+-----------------------+------------------------------------------+\n"
+    }
+    {
+    printf "| %-18s | %-43s | %10s | %21s | %21s | %-40s |\n",$1,$2,$6,$4,$5,$3
+    }
+    END {
+    printf "+--------------------+---------------------------------------------+------------+-----------------------+-----------------------+------------------------------------------+\n"
+    }' ${tmp_dir}/.$$.tmp  && rm -f ${tmp_dir}/.$$.tmp
+    else
+    f_log warning "${cluster_name}" "No catalog to consult"
+    fi
 }
 
 function f_physical_expire(){
 
-log_location=${log_directory}/${cluster_name}/${mainjobdate}
-[ -d "${log_location}" ] || mkdir -p ${log_location}
+    log_location=${log_directory}/${cluster_name}/${mainjobdate}
+    [ -d "${log_location}" ] || mkdir -p ${log_location}
 
-if [ ! -z "${bkpset_input}" ]; then
-physical_backup_retention="${bkpset_input}"
-physical_backup_retention_method="custom"
-fi
+    if [ ! -z "${bkpset_input}" ]; then
+    physical_backup_retention="${bkpset_input}"
+    physical_backup_retention_method="custom"
+    fi
 
-f_log info "${cluster_name}" "Cleaning backup with method : ${physical_backup_retention_method} - value : ${physical_backup_retention}"
+    f_log info "${cluster_name}" "Cleaning backup with method : ${physical_backup_retention_method} - value : ${physical_backup_retention}"
 
 
-case ${physical_backup_retention_method} in
-  count)
-   ((physical_backup_retention++))
-  ls -1td ${physical_backup_directory_bkp}/*F 2>/dev/null| tail -n +${physical_backup_retention}  | while read backupset
-  do
-    backupset=$(basename ${backupset})
-    f_log info ${cluster_name} "Deleting linked backup to ${backupset} "
-    find ${physical_backup_directory_bkp} -type d -name "*${backupset}*" | while read link_backupset
+    case ${physical_backup_retention_method} in
+    count)
+    ((physical_backup_retention++))
+    ls -1td ${physical_backup_directory_bkp}/*F 2>/dev/null| tail -n +${physical_backup_retention}  | while read backupset
     do
-     rm -frv ${link_backupset} >> ${log_location}/${backupset}_expire.log
-     if [ $? -eq 0 ]; then
-       f_log success ${cluster_name} "Backup directory $(basename ${link_backupset}) dropped "
-     else
-       f_log failed ${cluster_name} "Backup directory $(basename ${link_backupset}) not dropped "
-     fi
+        backupset=$(basename ${backupset})
+        f_log info ${cluster_name} "Deleting linked backup to ${backupset} "
+        find ${physical_backup_directory_bkp} -type d -name "*${backupset}*" | while read link_backupset
+        do
+        rm -frv ${link_backupset} >> ${log_location}/${backupset}_expire.log
+        if [ $? -eq 0 ]; then
+        f_log success ${cluster_name} "Backup directory $(basename ${link_backupset}) dropped "
+        else
+        f_log failed ${cluster_name} "Backup directory $(basename ${link_backupset}) not dropped "
+        fi
+        done
     done
-   done
-  ;;
-  days)
-   find ${physical_backup_directory_bkp}/ -type d -name "*F" -mtime +${physical_backup_retention}  | while read backupset
-   do
-    backupset=$(basename ${backupset})
-    f_log info ${cluster_name} "Deleting linked backup to ${backupset} "
-    find ${physical_backup_directory_bkp} -type d -name "*${backupset}*" | while read link_backupset
+    ;;
+    days)
+    find ${physical_backup_directory_bkp}/ -type d -name "*F" -mtime +${physical_backup_retention}  | while read backupset
     do
-     rm -fr ${link_backupset} >> ${log_location}/${backupset}_expire.log
-      if [ $? -eq 0 ]; then
-           f_log success ${cluster_name} "Backup directory $(basename ${link_backupset}) dropped "
-      else
-         f_log failed ${cluster_name} "Backup directory $(basename ${link_backupset}) not dropped "
-      fi
+        backupset=$(basename ${backupset})
+        f_log info ${cluster_name} "Deleting linked backup to ${backupset} "
+        find ${physical_backup_directory_bkp} -type d -name "*${backupset}*" | while read link_backupset
+        do
+        rm -fr ${link_backupset} >> ${log_location}/${backupset}_expire.log
+        if [ $? -eq 0 ]; then
+            f_log success ${cluster_name} "Backup directory $(basename ${link_backupset}) dropped "
+        else
+            f_log failed ${cluster_name} "Backup directory $(basename ${link_backupset}) not dropped "
+        fi
+        done
     done
-   done
-  ;;
-  custom)
-   find ${physical_backup_directory_bkp}/ -type d -name "*${bkpset_input}*"   | while read backupset
-   do
-    backupset=$(basename ${backupset})
-    f_log info ${cluster_name} "Deleting linked backup to ${backupset} "
-    find ${physical_backup_directory_bkp} -type d -name "*${backupset}*" | while read link_backupset
+    ;;
+    custom)
+    find ${physical_backup_directory_bkp}/ -type d -name "*${bkpset_input}*"   | while read backupset
     do
-     rm -fr ${link_backupset}  >> ${log_location}/${backupset}_expire.log
-     if [ $? -eq 0 ]; then
-      f_log success ${cluster_name} "Backup directory $(basename ${link_backupset}) dropped "
+        backupset=$(basename ${backupset})
+        f_log info ${cluster_name} "Deleting linked backup to ${backupset} "
+        find ${physical_backup_directory_bkp} -type d -name "*${backupset}*" | while read link_backupset
+        do
+        rm -fr ${link_backupset}  >> ${log_location}/${backupset}_expire.log
+        if [ $? -eq 0 ]; then
+        f_log success ${cluster_name} "Backup directory $(basename ${link_backupset}) dropped "
+        else
+        f_log failed ${cluster_name} "Backup directory $(basename ${link_backupset}) not dropped "
+        fi
+        done
+    done
+    esac
+
+    f_log info ${cluster_name} "Cleaning canceled backup"
+
+    ls -1tdr ${physical_backup_directory_bkp}/* 2>/dev/null| while read error_backupset
+    do
+    if [ ! -f "${error_backupset}/${xtrabackupchk}"  ] && [ ! -f "${error_backupset}/${xtrabackupinfo}"  ] ; then
+    rm -fr ${error_backupset} >> ${log_location}/${backupset}_expire.log
+    if [ $? -eq 0 ]; then
+        f_log success ${cluster_name} "Error Backup directory $(basename ${error_backupset}) dropped "
     else
-       f_log failed ${cluster_name} "Backup directory $(basename ${link_backupset}) not dropped "
-     fi
+        f_log failed ${cluster_name} "Error Backup directory $(basename ${error_backupset}) not dropped "
+    fi
+    fi
     done
-   done
-esac
 
-f_log info ${cluster_name} "Cleaning canceled backup"
+    if [ "${with_arclog}" == "true" ]; then
+    f_log info ${cluster_name} "Cleaning Archive Binlog withing ${arcbinlog_recovery_window} days "
 
-ls -1tdr ${physical_backup_directory_bkp}/* 2>/dev/null| while read error_backupset
-do
- if [ ! -f "${error_backupset}/${xtrabackupchk}"  ] && [ ! -f "${error_backupset}/${xtrabackupinfo}"  ] ; then
-   rm -fr ${error_backupset} >> ${log_location}/${backupset}_expire.log
-   if [ $? -eq 0 ]; then
-    f_log success ${cluster_name} "Error Backup directory $(basename ${error_backupset}) dropped "
-  else
-     f_log failed ${cluster_name} "Error Backup directory $(basename ${error_backupset}) not dropped "
-   fi
-fi
-done
+    find ${physical_backup_directory_arc} -type f -not -name "catalog" -mtime +${arcbinlog_recovery_window} | while read binlog_to_delete
+    do
+    rm -fr ${binlog_to_delete} >> ${log_location}/archivelog_expire.log
+    if [ $? -eq 0 ]; then
+    f_log success ${cluster_name} "Archive binlog ${binlog_to_delete} dropped "
+    sed -i "/$(basename ${binlog_to_delete})/d" ${physical_backup_directory_arc}/catalog
+    else
+    f_log failed ${cluster_name} "Archive binlog ${binlog_to_delete} not dropped "
+    fi
+    done
 
-if [ "${with_arclog}" == "true" ]; then
-f_log info ${cluster_name} "Cleaning Archive Binlog withing ${arcbinlog_recovery_window} days "
-
-find ${physical_backup_directory_arc} -type f -not -name "catalog" -mtime +${arcbinlog_recovery_window} | while read binlog_to_delete
-do
- rm -fr ${binlog_to_delete} >> ${log_location}/archivelog_expire.log
- if [ $? -eq 0 ]; then
-  f_log success ${cluster_name} "Archive binlog ${binlog_to_delete} dropped "
-  sed -i "/$(basename ${binlog_to_delete})/d" ${physical_backup_directory_arc}/catalog
- else
-  f_log failed ${cluster_name} "Archive binlog ${binlog_to_delete} not dropped "
- fi
-done
-
-fi
+    fi
 
 
 }
 
 function f_physical_restore(){
-i=0
-jobdate=$(date "+%Y%m%d-%H%M%S")
+    i=0
+    jobdate=$(date "+%Y%m%d-%H%M%S")
 
-log_location=${log_directory}/${cluster_name}/${mainjobdate}
-xtrabackupchk="xtrabackup_checkpoints"
-xtrabackupinfo="xtrabackup_info"
-physical_backup_directory_arc=${backup_directory}/${cluster_name}/${physical_backup_tool}/archives
-physical_backup_directory_bkp=${backup_directory}/${cluster_name}/${physical_backup_tool}/backups
-physical_restore_directory=${backup_directory}/${cluster_name}/${physical_backup_tool}/restore_area
+    log_location=${log_directory}/${cluster_name}/${mainjobdate}
+    xtrabackupchk="xtrabackup_checkpoints"
+    xtrabackupinfo="xtrabackup_info"
+    physical_backup_directory_arc=${backup_directory}/${cluster_name}/${physical_backup_tool}/archives
+    physical_backup_directory_bkp=${backup_directory}/${cluster_name}/${physical_backup_tool}/backups
+    physical_restore_directory=${backup_directory}/${cluster_name}/${physical_backup_tool}/restore_area
 
-[ -d "${physical_restore_directory}" ] || mkdir -p ${physical_restore_directory}
-[ -d "${log_location}" ] || mkdir -p ${log_location}
+    [ -d "${physical_restore_directory}" ] || mkdir -p ${physical_restore_directory}
+    [ -d "${log_location}" ] || mkdir -p ${log_location}
 
-if [ ! -z "${date}" ]; then
-   date -d"${date}" > /dev/null  2>&1
-   if [ $? -ne 0 ]; then
-     f_log warning ${cluster_name} "Date format is not correct : ${date} . Expected : YYYY/MM/DD HH:MI:SS"
-     exit 2
-   fi
-else
-  date=$(date +"%Y/%m/%d %H:%M:%S")
-fi
-
-f_log info ${cluster_name} "Restoring with date : ${date} "
-f_log info ${cluster_name} "Searching backup ... "
-
-ts_date=$(date -d"${date}" +"%s")
-
-ls -1tdr ${physical_backup_directory_bkp}/*F 2>/dev/null | while read backupset
-do
- f_size=$(du -sh ${backupset} | mawk '{print $1}')
- start_date=$(cat ${backupset}/${xtrabackupinfo} | mawk -F"=" '/start_time/ {print $2}' | sed -e 's/ //')
- ts_start_date=$(date -d"${start_date}" +"%s")
- end_date=$(cat ${backupset}/${xtrabackupinfo} | mawk -F"=" '/end_time/ {print $2}' | sed -e 's/ //')
- ts_end_date=$(date -d"${end_date}" +"%s")
- if [ ${ts_end_date} -le ${ts_date} ]; then
- echo "${backupset};${ts_start_date};${ts_end_date}" > ${tmp_dir}/$$.${physical_backup_tool}_${cluster_name}.rstfull
- fi
-done
-
-if [ -f "${tmp_dir}/$$.${physical_backup_tool}_${cluster_name}.rstfull" ]; then
-
-fullbkp_info=$(cat ${tmp_dir}/$$.${physical_backup_tool}_${cluster_name}.rstfull 2> /dev/null)
-full_repo_path=$(echo ${fullbkp_info} |cut -d";" -f 1 )
-full_end_date=$(echo ${fullbkp_info} |cut -d";" -f 3 )
-f_log info ${cluster_name} "Backup FULL : $(basename ${full_repo_path}) will be restored"
-else
-f_log warning ${cluster_name} "No Backup FULL found . Exit "
-exit 1
-
-fi
-
-
-ls -1tdr ${physical_backup_directory_bkp}/$(basename ${full_repo_path})_*D 2>/dev/null | while read backupset
-do
- d_size=$(du -sh ${backupset} | mawk '{print $1}')
- start_date=$(cat ${backupset}/${xtrabackupinfo} | mawk -F"=" '/start_time/ {print $2}' | sed -e 's/ //')
- ts_start_date=$(date -d"${start_date}" +"%s")
- end_date=$(cat ${backupset}/${xtrabackupinfo} | mawk -F"=" '/end_time/ {print $2}' | sed -e 's/ //')
- ts_end_date=$(date -d"${end_date}" +"%s")
- if [ ${ts_end_date} -le ${ts_date} ] && [ ${ts_start_date} -ge ${full_end_date} ]; then
-  echo "${backupset};${ts_start_date};${ts_end_date}" > ${tmp_dir}/$$.${physical_backup_tool}_${cluster_name}.rstdiff
- fi
-done
-
-if [ -f "${tmp_dir}/$$.${physical_backup_tool}_${cluster_name}.rstdiff" ]; then
-
-diffbkp_info=$(cat ${tmp_dir}/$$.${physical_backup_tool}_${cluster_name}.rstdiff 2> /dev/null)
-diff_repo_path=$(echo ${diffbkp_info} |cut -d";" -f 1 )
-diff_end_date=$(echo ${fullbkp_info} |cut -d";" -f 3 )
-f_log info ${cluster_name} "Backup DIFF : $(basename ${diff_repo_path}) will be restored"
-else
-f_log warning ${cluster_name} "No Backup DIFF found "
-
-fi
-
-if [ ! -z "${diff_repo_path}" ]; then
-    ls -1tdr ${physical_backup_directory_bkp}/$(basename ${full_repo_path})_$(basename ${diff_repo_path} |cut -d"_" -f 2 )_*I 2>/dev/null | while read backupset
-    do
-     i_size=$(du -sh ${backupset} | mawk '{print $1}')
-     start_date=$(cat ${backupset}/${xtrabackupinfo} | mawk -F"=" '/start_time/ {print $2}' | sed -e 's/ //')
-     ts_start_date=$(date -d"${start_date}" +"%s")
-     end_date=$(cat ${backupset}/${xtrabackupinfo} | mawk -F"=" '/end_time/ {print $2}' | sed -e 's/ //')
-     ts_end_date=$(date -d"${end_date}" +"%s")
-     if [ ${ts_end_date} -le ${ts_date} ] && [ ${ts_end_date} -ge ${diff_end_date} ]; then
-      echo "${backupset};${ts_start_date};${ts_end_date}" >> ${tmp_dir}/$$.${physical_backup_tool}_${cluster_name}.rstincr
-     fi
-    done
-else
-  ls -1tdr ${physical_backup_directory_bkp}/$(basename ${full_repo_path})_*I 2>/dev/null | while read backupset
-  do
-   [ -z ${backupset} ] && break
-   i_size=$(du -sh ${backupset} | mawk '{print $1}')
-   start_date=$(cat ${backupset}/${xtrabackupinfo} | mawk -F"=" '/start_time/ {print $2}' | sed -e 's/ //')
-   ts_start_date=$(date -d"${start_date}" +"%s")
-   end_date=$(cat ${backupset}/${xtrabackupinfo} | mawk -F"=" '/end_time/ {print $2}' | sed -e 's/ //')
-   ts_end_date=$(date -d"${end_date}" +"%s")
-   if [ ${ts_end_date} -le ${ts_date} ] && [ ${ts_end_date} -ge ${full_end_date} ]; then
-    echo "${backupset};${ts_start_date};${ts_end_date}" >> ${tmp_dir}/$$.${physical_backup_tool}_${cluster_name}.rstincr
-   fi
-  done
-
-fi
-
-
-if [ -f "${tmp_dir}/$$.${physical_backup_tool}_${cluster_name}.rstincr" ]; then
-
-cat ${tmp_dir}/$$.${physical_backup_tool}_${cluster_name}.rstincr 2> /dev/null | while read incrbkp_info
-do
-  incr_repo_path=$(echo ${incrbkp_info} |cut -d";" -f 1 )
-  f_log info ${cluster_name} "Backup INCR : $(basename ${incr_repo_path}) will be restored"
-done
-
-else
-f_log warning ${cluster_name} "No Backup INCR found "
-
-fi
-
-for  file in ${tmp_dir}/$$.${physical_backup_tool}_${cluster_name}.rstfull ${tmp_dir}/$$.${physical_backup_tool}_${cluster_name}.rstdiff ${tmp_dir}/$$.${physical_backup_tool}_${cluster_name}.rstincr
-do
-
-  cat ${file} >> ${tmp_dir}/main.$$.rst 2>/dev/null
-
-done
-
-
-f_log info "${cluster_name}" "Launching restore ... "
-
- if [ -z "${target_dir}" ]; then
-  target_dir=${datadir}
- fi
-
-
-if [ ! -d "${target_dir}" ]; then
-
-  f_log warning ${cluster_name} "Directory ${target_dir} not exists"
-
-  exit 1
-fi
-
-  if [ $(ls -A "${target_dir}/" | wc -l ) -eq 0 ]; then
-
-   f_log warning ${cluster_name} "Directory ${target_dir} is empty"
-
-   else
-
-   f_log warning ${cluster_name} "Directory ${target_dir} is not empty"
-
-   exit 1
-
-  fi
-
-f_log warning ${cluster_name} "Directory ${target_dir} is the target"
-
-mawk -F";" '{print $1}' ${tmp_dir}/main.$$.rst  |   while read backup_to_copy
-do
-   case ${backup_to_copy} in
-   *F)
-
-     f_log info "${cluster_name}" "Moving data to target-dir : ${target_dir} "
-    if [ "${isverbose}" == "true" ]; then
-         f_log debug ${cluster_name} "Running : cp -purv ${backup_to_copy}/* ${target_dir} >> ${log_location}/restore_${jobdate}.log  ... "
+    if [ ! -z "${date}" ]; then
+    date -d"${date}" > /dev/null  2>&1
+    if [ $? -ne 0 ]; then
+        f_log warning ${cluster_name} "Date format is not correct : ${date} . Expected : YYYY/MM/DD HH:MI:SS"
+        exit 2
+    fi
+    else
+    date=$(date +"%Y/%m/%d %H:%M:%S")
     fi
 
-    cp -purv ${backup_to_copy}/* ${target_dir} >> ${log_location}/restore_${jobdate}.log  2>&1
+    f_log info ${cluster_name} "Restoring with date : ${date} "
+    f_log info ${cluster_name} "Searching backup ... "
 
-    f_log info "${cluster_name}" "Decompressing backup FULL : $(basename ${backup_to_copy}) "
-    find ${target_dir} -type f  -name "*.bz2" | while read file
+    ts_date=$(date -d"${date}" +"%s")
+
+    ls -1tdr ${physical_backup_directory_bkp}/*F 2>/dev/null | while read backupset
     do
-      bzip2 -d -v ${file} >> ${log_location}/uncompress_$(basename ${backup_to_copy}).log 2>&1
+    f_size=$(du -sh ${backupset} | mawk '{print $1}')
+    start_date=$(cat ${backupset}/${xtrabackupinfo} | mawk -F"=" '/start_time/ {print $2}' | sed -e 's/ //')
+    ts_start_date=$(date -d"${start_date}" +"%s")
+    end_date=$(cat ${backupset}/${xtrabackupinfo} | mawk -F"=" '/end_time/ {print $2}' | sed -e 's/ //')
+    ts_end_date=$(date -d"${end_date}" +"%s")
+    if [ ${ts_end_date} -le ${ts_date} ]; then
+    echo "${backupset};${ts_start_date};${ts_end_date}" > ${tmp_dir}/$$.${physical_backup_tool}_${cluster_name}.rstfull
+    fi
+    done
+
+    if [ -f "${tmp_dir}/$$.${physical_backup_tool}_${cluster_name}.rstfull" ]; then
+
+    fullbkp_info=$(cat ${tmp_dir}/$$.${physical_backup_tool}_${cluster_name}.rstfull 2> /dev/null)
+    full_repo_path=$(echo ${fullbkp_info} |cut -d";" -f 1 )
+    full_end_date=$(echo ${fullbkp_info} |cut -d";" -f 3 )
+    f_log info ${cluster_name} "Backup FULL : $(basename ${full_repo_path}) will be restored"
+    else
+    f_log warning ${cluster_name} "No Backup FULL found . Exit "
+    exit 1
+
+    fi
+
+
+    ls -1tdr ${physical_backup_directory_bkp}/$(basename ${full_repo_path})_*D 2>/dev/null | while read backupset
+    do
+    d_size=$(du -sh ${backupset} | mawk '{print $1}')
+    start_date=$(cat ${backupset}/${xtrabackupinfo} | mawk -F"=" '/start_time/ {print $2}' | sed -e 's/ //')
+    ts_start_date=$(date -d"${start_date}" +"%s")
+    end_date=$(cat ${backupset}/${xtrabackupinfo} | mawk -F"=" '/end_time/ {print $2}' | sed -e 's/ //')
+    ts_end_date=$(date -d"${end_date}" +"%s")
+    if [ ${ts_end_date} -le ${ts_date} ] && [ ${ts_start_date} -ge ${full_end_date} ]; then
+    echo "${backupset};${ts_start_date};${ts_end_date}" > ${tmp_dir}/$$.${physical_backup_tool}_${cluster_name}.rstdiff
+    fi
+    done
+
+    if [ -f "${tmp_dir}/$$.${physical_backup_tool}_${cluster_name}.rstdiff" ]; then
+
+    diffbkp_info=$(cat ${tmp_dir}/$$.${physical_backup_tool}_${cluster_name}.rstdiff 2> /dev/null)
+    diff_repo_path=$(echo ${diffbkp_info} |cut -d";" -f 1 )
+    diff_end_date=$(echo ${fullbkp_info} |cut -d";" -f 3 )
+    f_log info ${cluster_name} "Backup DIFF : $(basename ${diff_repo_path}) will be restored"
+    else
+    f_log warning ${cluster_name} "No Backup DIFF found "
+
+    fi
+
+    if [ ! -z "${diff_repo_path}" ]; then
+        ls -1tdr ${physical_backup_directory_bkp}/$(basename ${full_repo_path})_$(basename ${diff_repo_path} |cut -d"_" -f 2 )_*I 2>/dev/null | while read backupset
+        do
+        i_size=$(du -sh ${backupset} | mawk '{print $1}')
+        start_date=$(cat ${backupset}/${xtrabackupinfo} | mawk -F"=" '/start_time/ {print $2}' | sed -e 's/ //')
+        ts_start_date=$(date -d"${start_date}" +"%s")
+        end_date=$(cat ${backupset}/${xtrabackupinfo} | mawk -F"=" '/end_time/ {print $2}' | sed -e 's/ //')
+        ts_end_date=$(date -d"${end_date}" +"%s")
+        if [ ${ts_end_date} -le ${ts_date} ] && [ ${ts_end_date} -ge ${diff_end_date} ]; then
+        echo "${backupset};${ts_start_date};${ts_end_date}" >> ${tmp_dir}/$$.${physical_backup_tool}_${cluster_name}.rstincr
+        fi
+        done
+    else
+    ls -1tdr ${physical_backup_directory_bkp}/$(basename ${full_repo_path})_*I 2>/dev/null | while read backupset
+    do
+    [ -z ${backupset} ] && break
+    i_size=$(du -sh ${backupset} | mawk '{print $1}')
+    start_date=$(cat ${backupset}/${xtrabackupinfo} | mawk -F"=" '/start_time/ {print $2}' | sed -e 's/ //')
+    ts_start_date=$(date -d"${start_date}" +"%s")
+    end_date=$(cat ${backupset}/${xtrabackupinfo} | mawk -F"=" '/end_time/ {print $2}' | sed -e 's/ //')
+    ts_end_date=$(date -d"${end_date}" +"%s")
+    if [ ${ts_end_date} -le ${ts_date} ] && [ ${ts_end_date} -ge ${full_end_date} ]; then
+        echo "${backupset};${ts_start_date};${ts_end_date}" >> ${tmp_dir}/$$.${physical_backup_tool}_${cluster_name}.rstincr
+    fi
+    done
+
+    fi
+
+
+    if [ -f "${tmp_dir}/$$.${physical_backup_tool}_${cluster_name}.rstincr" ]; then
+
+    cat ${tmp_dir}/$$.${physical_backup_tool}_${cluster_name}.rstincr 2> /dev/null | while read incrbkp_info
+    do
+    incr_repo_path=$(echo ${incrbkp_info} |cut -d";" -f 1 )
+    f_log info ${cluster_name} "Backup INCR : $(basename ${incr_repo_path}) will be restored"
+    done
+
+    else
+    f_log warning ${cluster_name} "No Backup INCR found "
+
+    fi
+
+    for  file in ${tmp_dir}/$$.${physical_backup_tool}_${cluster_name}.rstfull ${tmp_dir}/$$.${physical_backup_tool}_${cluster_name}.rstdiff ${tmp_dir}/$$.${physical_backup_tool}_${cluster_name}.rstincr
+    do
+
+    cat ${file} >> ${tmp_dir}/main.$$.rst 2>/dev/null
+
     done
 
 
-    f_log info "${cluster_name}" "Preparing  backup FULL : $(basename ${backup_to_copy})  ... "
-    if [ "${isverbose}" == "true" ]; then
-         f_log debug ${cluster_name} "Running : ${physical_backup_tool} --prepare  --target-dir=${target_dir} > ${log_location}/prepare_full_${jobdate}.log  ... "
+    f_log info "${cluster_name}" "Launching restore ... "
+
+    if [ -z "${target_dir}" ]; then
+    target_dir=${datadir}
     fi
 
 
-   ${physical_backup_tool} --prepare --target-dir=${target_dir} > ${log_location}/prepare_full_${jobdate}.log  2>&1
-   f_confirm_log ${log_location}/prepare_full_${jobdate}.log
-   if [ $? -eq 0 ]; then
-     f_log success "${cluster_name}" "Backup FULL $(basename ${backup_to_copy}) prepared"
-   else
-     f_log failed "${cluster_name}" "Backup FULL $(basename ${backup_to_copy}) not prepared"
-     exit 2
-   fi
-   ;;
+    if [ ! -d "${target_dir}" ]; then
 
-   *D)
+    f_log warning ${cluster_name} "Directory ${target_dir} not exists"
 
-    working_dir="${physical_restore_directory}/$(basename ${backup_to_copy})"
-    mkdir  -p ${working_dir}
-    f_log info "${cluster_name}" "Moving data to working-dir : ${working_dir} "
-    if [ "${isverbose}" == "true" ]; then
-         f_log debug ${cluster_name} "Running : cp -purv ${backup_to_copy}/* ${working_dir} >> ${log_location}/restore_${jobdate}.log  ... "
+    exit 1
     fi
 
-    cp -purv ${backup_to_copy}/* ${working_dir} >> ${log_location}/restore_${jobdate}.log  2>&1
-    f_log info "${cluster_name}" "Decompressing backup DIFF : $(basename ${backup_to_copy})  "
-    find ${working_dir} -type f  -name "*.bz2" | while read file
+    if [ $(ls -A "${target_dir}/" | wc -l ) -eq 0 ]; then
+
+    f_log warning ${cluster_name} "Directory ${target_dir} is empty"
+
+    else
+
+    f_log warning ${cluster_name} "Directory ${target_dir} is not empty"
+
+    exit 1
+
+    fi
+
+    f_log warning ${cluster_name} "Directory ${target_dir} is the target"
+
+    mawk -F";" '{print $1}' ${tmp_dir}/main.$$.rst  |   while read backup_to_copy
     do
-      bzip2 -d -v ${file} >> ${log_location}/uncompress_$(basename ${backup_to_copy}).log 2>&1
-    done
+    case ${backup_to_copy} in
+    *F)
+
+        f_log info "${cluster_name}" "Moving data to target-dir : ${target_dir} "
+        if [ "${isverbose}" == "true" ]; then
+            f_log debug ${cluster_name} "Running : cp -purv ${backup_to_copy}/* ${target_dir} >> ${log_location}/restore_${jobdate}.log  ... "
+        fi
+
+        cp -purv ${backup_to_copy}/* ${target_dir} >> ${log_location}/restore_${jobdate}.log  2>&1
+
+        f_log info "${cluster_name}" "Decompressing backup FULL : $(basename ${backup_to_copy}) "
+        find ${target_dir} -type f  -name "*.bz2" | while read file
+        do
+        bzip2 -d -v ${file} >> ${log_location}/uncompress_$(basename ${backup_to_copy}).log 2>&1
+        done
 
 
-    f_log info "${cluster_name}" "Preparing  backup DIFF : $(basename ${backup_to_copy})  ... "
-    if [ "${isverbose}" == "true" ]; then
-         f_log debug ${cluster_name} "Running : ${physical_backup_tool} --prepare --target-dir=${target_dir} --incremental-dir=${working_dir}  ... "
-    fi
-   ${physical_backup_tool} --prepare --target-dir=${target_dir} --incremental-dir=${working_dir}  > ${log_location}/prepare_diff_${jobdate}.log  2>&1
-   f_confirm_log ${log_location}/prepare_diff_${jobdate}.log
-   if [ $? -eq 0 ]; then
-     f_log success "${cluster_name}" "Backup DIFF $(basename ${backup_to_copy}) prepared"
-   else
-     f_log failed "${cluster_name}" "Backup DIFF $(basename ${backup_to_copy}) not prepared"
+        f_log info "${cluster_name}" "Preparing  backup FULL : $(basename ${backup_to_copy})  ... "
+        if [ "${isverbose}" == "true" ]; then
+            f_log debug ${cluster_name} "Running : ${physical_backup_tool} --prepare  --target-dir=${target_dir} > ${log_location}/prepare_full_${jobdate}.log  ... "
+        fi
 
-     exit 2
-   fi
-   ;;
-   *I)
-    working_dir="${physical_restore_directory}/$(basename ${backup_to_copy})"
-    mkdir  -p ${working_dir}
-    f_log info "${cluster_name}" "Moving data to working-dir : ${working_dir} "
-    if [ "${isverbose}" == "true" ]; then
-         f_log debug ${cluster_name} "Running : cp -purv ${backup_to_copy}/* ${working_dir} >> ${log_location}/restore_${jobdate}.log  ... "
-    fi
+    if [ $(cat /tmp/main.$$.rst |wc -l) -gt 1 ]; then 
+        apply_log="--apply-log-only"
+    else 
+        apply_log=""
+    fi 
 
-    cp -purv ${backup_to_copy}/* ${working_dir} >> ${log_location}/restore_${jobdate}.log  2>&1
-    f_log info "${cluster_name}" "Decompressing backup INCR : $(basename ${backup_to_copy})  "
-    find ${working_dir} -type f -name "*.bz2" | while read file
-    do
-      bzip2 -d -v ${file} >> ${log_location}/uncompress_$(basename ${backup_to_copy}).log 2>&1
-    done
 
-    f_log info "${cluster_name}" "Preparing  backup INCR : $(basename ${backup_to_copy})  ... "
-    if [ "${isverbose}" == "true" ]; then
-         f_log debug ${cluster_name} "Running : ${physical_backup_tool} --prepare --target-dir=${target_dir} --incremental-dir=${working_dir}  ... "
-    fi
-   ${physical_backup_tool} --prepare --target-dir=${target_dir} --incremental-dir=${working_dir} >> ${log_location}/prepare_incr_${jobdate}.log  2>&1
-   f_confirm_log ${log_location}/prepare_incr_${jobdate}.log
-   if [ $? -eq 0 ]; then
-     f_log success "${cluster_name}" "Backup INCR $(basename ${backup_to_copy}) prepared"
-   else
-     f_log failed "${cluster_name}" "Backup INCR $(basename ${backup_to_copy}) not prepared"
-
-    exit 2
-   fi
-   ;;
-   esac
-
-done
-
-if [ "${to_recover}" == "true" ]; then
-   f_physical_recover
-else
-  f_log info "${cluster_name}" "Recovery Option set to No ... "
-fi
-
-chown mysql. -R ${target_dir}
-echo -e "
-# ------------------------------- #
-#      Restored by mybackrest
-# ------------------------------- #
-# Minimal Configuration File
-[mysqld]
-datadir = ${target_dir}
-innodb_buffer_pool_size = 128M
-innodb_file_per_table = ON
-innodb_log_file_size = 16M
-innodb_checksum_algorithm=crc32
-innodb_data_file_path=ibdata1:12M:autoextend
-innodb_log_files_in_group = 2
-innodb_log_file_size = 16777216
-innodb_fast_shutdown = 0
-port = 30306
-socket = /var/run/mysqld/${cluster_name}-restore_$$.30306.sock
-" > ${target_dir}/${cluster_name}-restored.cnf
-f_log info "${cluster_name}" "Temporary MySQL / MariaDB Cluster will be started ... "
-
-rm ${tmp_dir}/main.$$.rst ${tmp_dir}/recover.$$.rst
-sleep_timeout=0
-[ -z "${grace_timeout}" ] && grace_timeout=30
-# ADD PASSWORD SYNTAX
-resto_dsn_info=" --host=${host} --port=30306 --user=${user} ${password} "
-
-mysqld --defaults-file=${target_dir}/${cluster_name}-restored.cnf --user=mysql --log-error=${tmp_dir}/${cluster_name}_restore_$$.err & > /dev/null 2>&1
-
-while [ ${sleep_timeout} -le ${grace_timeout} ]
-do
-confirm_port=$(mysql ${resto_dsn_info} -sNe "select @@port" 2> /dev/null )
-if [ "${confirm_port}" != "30306"  ]; then
-    f_log info "${cluster_name}" "Waiting for temporary MySQL / MariaDB start ..."
-    sleep 2 ; ((sleep_timeout++))
-    continue
-else
-    grep " mysqld: ready for connections" ${tmp_dir}/${cluster_name}_restore_$$.err > /dev/null 2>&1
+    ${physical_backup_tool} --prepare ${apply_log}  --target-dir=${target_dir} > ${log_location}/prepare_full_${jobdate}.log  2>&1
+    f_confirm_log ${log_location}/prepare_full_${jobdate}.log
     if [ $? -eq 0 ]; then
+        f_log success "${cluster_name}" "Backup FULL $(basename ${backup_to_copy}) prepared"
+    else
+        f_log failed "${cluster_name}" "Backup FULL $(basename ${backup_to_copy}) not prepared"
+        exit 2
+    fi
+    ;;
 
-    if [ -f ${target_dir}/recover.sql ]; then
-       f_log info   "${cluster_name}" "Loading restored datas ..."
-       mysql ${resto_dsn_info} < ${target_dir}/recover.sql 2> /dev/null
+    *D)
+
+        working_dir="${physical_restore_directory}/$(basename ${backup_to_copy})"
+        mkdir  -p ${working_dir}
+        f_log info "${cluster_name}" "Moving data to working-dir : ${working_dir} "
+        if [ "${isverbose}" == "true" ]; then
+            f_log debug ${cluster_name} "Running : cp -purv ${backup_to_copy}/* ${working_dir} >> ${log_location}/restore_${jobdate}.log  ... "
+        fi
+
+        cp -purv ${backup_to_copy}/* ${working_dir} >> ${log_location}/restore_${jobdate}.log  2>&1
+        f_log info "${cluster_name}" "Decompressing backup DIFF : $(basename ${backup_to_copy})  "
+        find ${working_dir} -type f  -name "*.bz2" | while read file
+        do
+        bzip2 -d -v ${file} >> ${log_location}/uncompress_$(basename ${backup_to_copy}).log 2>&1
+        done
+
+
+        f_log info "${cluster_name}" "Preparing  backup DIFF : $(basename ${backup_to_copy})  ... "
+        if [ "${isverbose}" == "true" ]; then
+            f_log debug ${cluster_name} "Running : ${physical_backup_tool} --prepare --target-dir=${target_dir} --incremental-dir=${working_dir}  ... "
+        fi
+    ${physical_backup_tool} --prepare --apply-log-only --target-dir=${target_dir} --incremental-dir=${working_dir}  > ${log_location}/prepare_diff_${jobdate}.log  2>&1
+    f_confirm_log ${log_location}/prepare_diff_${jobdate}.log
+    if [ $? -eq 0 ]; then
+        f_log success "${cluster_name}" "Backup DIFF $(basename ${backup_to_copy}) prepared"
+    else
+        f_log failed "${cluster_name}" "Backup DIFF $(basename ${backup_to_copy}) not prepared"
+
+        exit 2
+    fi
+    ;;
+    *I)
+        working_dir="${physical_restore_directory}/$(basename ${backup_to_copy})"
+        mkdir  -p ${working_dir}
+        f_log info "${cluster_name}" "Moving data to working-dir : ${working_dir} "
+        if [ "${isverbose}" == "true" ]; then
+            f_log debug ${cluster_name} "Running : cp -purv ${backup_to_copy}/* ${working_dir} >> ${log_location}/restore_${jobdate}.log  ... "
+        fi
+
+        cp -purv ${backup_to_copy}/* ${working_dir} >> ${log_location}/restore_${jobdate}.log  2>&1
+        f_log info "${cluster_name}" "Decompressing backup INCR : $(basename ${backup_to_copy})  "
+        find ${working_dir} -type f -name "*.bz2" | while read file
+        do
+        bzip2 -d -v ${file} >> ${log_location}/uncompress_$(basename ${backup_to_copy}).log 2>&1
+        done
+
+        f_log info "${cluster_name}" "Preparing  backup INCR : $(basename ${backup_to_copy})  ... "
+        if [ "${isverbose}" == "true" ]; then
+            f_log debug ${cluster_name} "Running : ${physical_backup_tool} --prepare --target-dir=${target_dir} --incremental-dir=${working_dir}  ... "
+        fi
+    ${physical_backup_tool} --prepare --apply-log-only --target-dir=${target_dir} --incremental-dir=${working_dir} >> ${log_location}/prepare_incr_${jobdate}.log  2>&1
+    f_confirm_log ${log_location}/prepare_incr_${jobdate}.log
+    if [ $? -eq 0 ]; then
+        f_log success "${cluster_name}" "Backup INCR $(basename ${backup_to_copy}) prepared"
+    else
+        f_log failed "${cluster_name}" "Backup INCR $(basename ${backup_to_copy}) not prepared"
+
+        exit 2
+    fi
+    ;;
+    esac
+
+    done
+
+    if [ "${to_recover}" == "true" ]; then
+    f_physical_recover
+    else
+    f_log info "${cluster_name}" "Recovery Option set to No ... "
+    fi
+
+    chown mysql. -R ${target_dir}
+    echo -e "
+    # ------------------------------- #
+    #      Restored by mybackrest
+    # ------------------------------- #
+    # Minimal Configuration File
+    [mysqld]
+    datadir = ${target_dir}
+    log-error=${target_dir}/${cluster_name}_restore.err
+    innodb_buffer_pool_size = 128M
+    innodb_file_per_table = ON
+    innodb_log_file_size = 16M
+    innodb_checksum_algorithm=crc32
+    innodb_data_file_path=ibdata1:12M:autoextend
+    innodb_log_files_in_group = 2
+    innodb_log_file_size = 16777216
+    innodb_fast_shutdown = 0
+    port = 30306
+    socket = /var/run/mysqld/${cluster_name}-restore.30306.sock
+    " > ${target_dir}/${cluster_name}-restored.cnf
+    f_log info "${cluster_name}" "Temporary MySQL / MariaDB Cluster will be started ... "
+
+    rm ${tmp_dir}/main.rst ${tmp_dir}/recover.rst
+    sleep_timeout=0
+    [ -z "${grace_timeout}" ] && grace_timeout=30
+    # ADD PASSWORD SYNTAX
+    resto_dsn_info=" --host=${host} --port=30306 --user=${user} ${password} "
+
+    mysqld --defaults-file=${target_dir}/${cluster_name}-restored.cnf --user=mysql --log-error=${tmp_dir}/${cluster_name}_restore_$$.err & > /dev/null 2>&1
+
+    while [ ${sleep_timeout} -le ${grace_timeout} ]
+    do
+    confirm_port=$(mysql ${resto_dsn_info} -sNe "select @@port" 2> /dev/null )
+    if [ "${confirm_port}" != "30306"  ]; then
+        f_log info "${cluster_name}" "Waiting for temporary MySQL / MariaDB start ..."
+        sleep 2 ; ((sleep_timeout++))
+        continue
+    else
+        grep " mysqld: ready for connections" ${tmp_dir}/${cluster_name}_restore_$$.err > /dev/null 2>&1
         if [ $? -eq 0 ]; then
-          rm -f ${target_dir}/recover.sql 2> /dev/null
-          f_log success  "${cluster_name}"  "Datas load into temporary MySQL / MariaDB Cluster "
-          f_log info   "${cluster_name}"  "Shutting down temporary MySQL / MariaDB Cluster with grace timeout : ${grace_timeout} s "
+
+        if [ -f ${target_dir}/recover.sql ]; then
+        f_log info   "${cluster_name}" "Loading restored datas ..."
+        mysql ${resto_dsn_info} < ${target_dir}/recover.sql 2> /dev/null
+            if [ $? -eq 0 ]; then
+            rm -f ${target_dir}/recover.sql 2> /dev/null
+            f_log success  "${cluster_name}"  "Datas load into temporary MySQL / MariaDB Cluster "
+            f_log info   "${cluster_name}"  "Shutting down temporary MySQL / MariaDB Cluster with grace timeout : ${grace_timeout} s "
+            else
+            rm -f ${target_dir}/recover.sql
+            f_log failed  "${cluster_name}"  "Datas not load into temporary MySQL / MariaDB Cluster "
+            f_log info   "${cluster_name}"  "Shutting down temporary MySQL / MariaDB Cluster with grace timeout : ${grace_timeout} s "
+            fi
+        fi
+        mysqladmin ${resto_dsn_info} shutdown > /dev/null 2>&1
+        sleep ${grace_timeout}
+        mysql ${resto_dsn_info} -sNe "select 0" 2>/dev/null
+        if [ $? -ne 0 ]; then
+            f_log success "${cluster_name}" "Temporary MySQL / MariaDB is OFF "
         else
-          rm -f ${target_dir}/recover.sql
-          f_log failed  "${cluster_name}"  "Datas not load into temporary MySQL / MariaDB Cluster "
-          f_log info   "${cluster_name}"  "Shutting down temporary MySQL / MariaDB Cluster with grace timeout : ${grace_timeout} s "
+            f_log failed "${cluster_name}" "Temporary MySQL / MariaDB still running !!!  "
+        fi
+        break
+        else
+        f_log failed "${cluster_name}" "Temporary MySQL / MariaDB is not ready for connections "
         fi
     fi
-      mysqladmin ${resto_dsn_info} shutdown > /dev/null 2>&1
-      sleep ${grace_timeout}
-      mysql ${resto_dsn_info} -sNe "select 0" 2>/dev/null
-      if [ $? -ne 0 ]; then
-         f_log success "${cluster_name}" "Temporary MySQL / MariaDB is OFF "
-      else
-         f_log failed "${cluster_name}" "Temporary MySQL / MariaDB still running !!!  "
-      fi
-      break
-    else
-    f_log failed "${cluster_name}" "Temporary MySQL / MariaDB is not ready for connections "
-    fi
-fi
 
 
-done
-exit 0
+    done
+    exit 0
 }
 
 function f_physical_recover(){
@@ -1374,98 +1360,98 @@ function f_physical_recover(){
 
 function f_test_connection(){
 
-local current_cluster=$1
-mysql ${dsn_info} -sNe  'select 0' >  /dev/null 2>&1
-if [  $? -ne 0 ]; then
-	 f_log failed "${cluster_name}" "MySQL Cluster is not reachable"
-   exit 2
-fi
+    local current_cluster=$1
+    mysql ${dsn_info} -sNe  'select 0' >  /dev/null 2>&1
+    if [  $? -ne 0 ]; then
+        f_log failed "${cluster_name}" "MySQL Cluster is not reachable"
+    exit 2
+    fi
 
 }
 
 function f_canceled(){
 
-f_log warning "${cluster_name}" "Tasks canceled ..."
-exit 1
+    f_log warning "${cluster_name}" "Tasks canceled ..."
+    exit 1
 
 }
 
 function f_main(){
 
-if [ "${backup_flag}" == "true" ]; then
-   case ${backup_type} in
-   full|diff|incr|info|arclist|archivelog|auto|expire|catalog)
-     f_load_config "${cluster_name}"
-     f_physical_backup "${cluster_name}" ${backup_type} ;;
+    if [ "${backup_flag}" == "true" ]; then
+    case ${backup_type} in
+    full|diff|incr|info|arclist|archivelog|auto|expire|catalog)
+        f_load_config "${cluster_name}"
+        f_physical_backup "${cluster_name}" ${backup_type} ;;
 
-   logical)
-     f_load_config "${cluster_name}"
-     f_logical_backup "${cluster_name}"  ;;
+    logical)
+        f_load_config "${cluster_name}"
+        f_logical_backup "${cluster_name}"  ;;
 
-   expirelogical)
-     f_load_config "${cluster_name}"
-     f_logical_expire
-    ;;
-   infological)
-     f_load_config "${cluster_name}"
-     f_logical_info  "${cluster_name}"  ;;
+    expirelogical)
+        f_load_config "${cluster_name}"
+        f_logical_expire
+        ;;
+    infological)
+        f_load_config "${cluster_name}"
+        f_logical_info  "${cluster_name}"  ;;
 
-   conf)
-   f_load_config "${cluster_name}"
-   f_configuration_backup "${cluster_name}"
-   ;;
-   *)
-      f_usage ;;
-   esac
-fi
-# --------------------
-if [ "${restore_flag}" == "true" ]; then
+    conf)
     f_load_config "${cluster_name}"
-    f_physical_restore "${cluster_name}"
-fi
+    f_configuration_backup "${cluster_name}"
+    ;;
+    *)
+        f_usage ;;
+    esac
+    fi
+    # --------------------
+    if [ "${restore_flag}" == "true" ]; then
+        f_load_config "${cluster_name}"
+        f_physical_restore "${cluster_name}"
+    fi
 
-# --------------------
-if [ "${generate_flag}" == "true" ]; then
-   f_generate "${cluster_name}"
-fi
+    # --------------------
+    if [ "${generate_flag}" == "true" ]; then
+    f_generate "${cluster_name}"
+    fi
 
 }
 
 function f_usage(){
 
-echo  "
-   mybackrest  - MySQL / MariaDB Backup & Restore  ${version}
+    echo  "
+    mybackrest  - MySQL / MariaDB Backup & Restore  ${version}
 
-   usage: mybackrest --cluster [cluster_name] [options] [args]
+    usage: mybackrest --cluster [cluster_name] [options] [args]
 
-   Options :
-      -c | --cluster     : cluster
-      -v | --verbose     : verbose mode
-      -g | --generate    : generate mybackrest configuration file
-      -d | --databases   : databases lists separate by comma
-      -b | --backup      : backup [ full | diff | incr | auto | archivelog | expire | conf ]
-      -r | --restore     : restore mysql cluster
-      -D | --target-dir  : path where data will copy
-      -R | --recover     : activate recover mode . Dffault is off
-      -w | --with-binlog : with copy of binlogs
-      -W | --with-conf   : with MySQL / MariaDB configuration
-      --color            : activate color mode in console
+    Options :
+        -c | --cluster     : cluster
+        -v | --verbose     : verbose mode
+        -g | --generate    : generate mybackrest configuration file
+        -d | --databases   : databases lists separate by comma
+        -b | --backup      : backup [ full | diff | incr | auto | archivelog | expire | conf ]
+        -r | --restore     : restore mysql cluster
+        -D | --target-dir  : path where data will copy
+        -R | --recover     : activate recover mode . Dffault is off
+        -w | --with-binlog : with copy of binlogs
+        -W | --with-conf   : with MySQL / MariaDB configuration
+        --color            : activate color mode in console
 
-   Commands examples  :
-      - Initialize a configuration file for a cluster :
-      ${tool} --cluster [cluster_name] --generate
-      - To manage logical backup mysqldump
-      ${tool} --cluster [cluster_name] --backup [ logical | infological | expirelogical ] --with-conf
-      - To manage lowlevel backup with xtrabackup or mariabackup
-      ${tool} --cluster [cluster_name] --backup [ full | incr | diff | auto | expire | conf | info ] --with-arclog
-      - To List all knowed clusters
-      ${tool} --show-cluster
-      - To Display cluster configuration
-      ${tool} --show-config <cluster_name>
-      - To manage lowlevel restore with xtrabackup or mariabackup
-      ${tool} --cluster [cluster_name] --restore  --set \"YYYY-MM-DD HH24:MI:SS\" --target-dir /path/to/restore [--recover]
-"
-exit 0
+    Commands examples  :
+        - Initialize a configuration file for a cluster :
+        ${tool} --cluster [cluster_name] --generate
+        - To manage logical backup mysqldump
+        ${tool} --cluster [cluster_name] --backup [ logical | infological | expirelogical ] --with-conf
+        - To manage lowlevel backup with xtrabackup or mariabackup
+        ${tool} --cluster [cluster_name] --backup [ full | incr | diff | auto | expire | conf | info ] --with-arclog
+        - To List all knowed clusters
+        ${tool} --show-cluster
+        - To Display cluster configuration
+        ${tool} --show-config <cluster_name>
+        - To manage lowlevel restore with xtrabackup or mariabackup
+        ${tool} --cluster [cluster_name] --restore  --set \"YYYY-MM-DD HH24:MI:SS\" --target-dir /path/to/restore [--recover]
+    "
+    exit 0
 }
 
 # ------------------------------------------------------------------------------
@@ -1480,69 +1466,84 @@ eval set -- "$GET_OPT"
 while true
 do
     case "${1}" in
-      --show-config)
-       f_showconfig ${2} ; exit 0 ;;
 
-      --show-cluster)
-        f_showcluster  ; exit 0 ;;
+    --show-config)
+        f_showconfig ${2} ; 
+        exit 0 ;;
 
-      -c|--cluster)
-        cluster_name=${2} ; shift 2 ;;
+    --show-cluster)
+        f_showcluster  ; 
+        exit 0 ;;
 
-      -h|--help)
-      f_usage  ;;
+    -c|--cluster)
+        cluster_name=${2} ;
+        shift 2 ;;
 
-      -d|--databases)
-       dbs=${2} ; shift 2  ;;
 
-      -v|--verbose)
-       isverbose="true" ; shift 1 ;;
 
-      -b|--backup)
-       backup_flag=true ;
-       restore_flag=false;
-       generate_flag=false ;
-       backup_type=${2} ; shift 2 ;;
+    -d|--databases)
+        dbs=${2} ; 
+        shift 2  ;;
 
-      -r|--restore)
-      backup_flag=false ;
-      restore_flag=true;
-      generate_flag=false ;
-      shift 1 ;;
+    -v|--verbose)
+        isverbose="true" ; 
+        shift 1 ;;
 
-      -g|--generate)
-      backup_flag=false ;
-      restore_flag=false;
-      generate_flag=true ;
-      shift 1 ;;
+    -b|--backup)
+        backup_flag=true ;
+        restore_flag=false;
+        generate_flag=false ;
+        backup_type=${2} ; 
+        shift 2 ;;
 
-      -R|--recover)
-         to_recover="true" ; shift 1 ;;
+    -r|--restore)
+        backup_flag=false ;
+        restore_flag=true;
+        generate_flag=false ;
+        shift 1 ;;
 
-      -s|--set)
-        date="${2}" ; shift 2 ;;
+    -g|--generate)
+        backup_flag=false ;
+        restore_flag=false;
+        generate_flag=true ;
+        shift 1 ;;
 
-      -D|--target-dir)
-        target_dir="${2}"; shift 2  ;;
+    -R|--recover)
+        to_recover="true" ; 
+        shift 1 ;;
 
-      -B|--backupset)
-        bkpset_input=${2} ; shift 2 ;;
+    -s|--set)
+        date="${2}" ; 
+        shift 2 ;;
 
-      -w|--with-arclog)
-        with_arclog="true" ; shift 1 ;;
+    -D|--target-dir)
+        target_dir="${2}"; 
+        shift 2  ;;
 
-      -W|--with-conf)
-        with_conf="true" ; shift 1 ;;
+    -B|--backupset)
+        bkpset_input=${2} ; 
+        shift 2 ;;
 
-      --color)
-        is_colored="true"         ;
-        shift 1                  ;;
+    -w|--with-arclog)
+        with_arclog="true" ; 
+        shift 1 ;;
 
-      --)
+    -W|--with-conf)
+        with_conf="true" ; 
+        shift 1 ;;
+
+    --color)
+        is_colored="true" ;
+        shift 1 ;;
+
+    -h|--help)
+        f_usage  ;;
+
+    --)
         shift;
         break;;
-      *)
-       f_usage ;;
+    *)
+        f_usage ;;
     esac
 done
 
