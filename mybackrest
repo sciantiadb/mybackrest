@@ -84,6 +84,7 @@ function f_requirements(){
     if [ ! -d "${tmp_dir}" ]; then
     f_log warning "${tool}" "Temp directory is missing : ${tmp_dir} "
     mkdir -p "${tmp_dir}" 2>/dev/null
+    chown mysql. ${tmp_dir}
     f_log info "${tool}" "Temp directory created "
     fi
 
@@ -1100,7 +1101,7 @@ function f_physical_restore(){
     for  file in ${tmp_dir}/$$.${physical_backup_tool}_${cluster_name}.rstfull ${tmp_dir}/$$.${physical_backup_tool}_${cluster_name}.rstdiff ${tmp_dir}/$$.${physical_backup_tool}_${cluster_name}.rstincr
     do
 
-    cat ${file} >> ${tmp_dir}/main.$$.rst 2>/dev/null
+    cat ${file} >> ${tmp_dir}/main_${cluster_name}.rst 2>/dev/null
 
     done
 
@@ -1133,7 +1134,7 @@ function f_physical_restore(){
 
     f_log warning ${cluster_name} "Directory ${target_dir} is the target"
 
-    mawk -F";" '{print $1}' ${tmp_dir}/main.$$.rst  |   while read backup_to_copy
+    mawk -F";" '{print $1}' ${tmp_dir}/main_${cluster_name}.rst |   while read backup_to_copy
     do
     case ${backup_to_copy} in
     *F)
@@ -1157,7 +1158,7 @@ function f_physical_restore(){
             f_log debug ${cluster_name} "Running : ${physical_backup_tool} --prepare  --target-dir=${target_dir} > ${log_location}/prepare_full_${jobdate}.log  ... "
         fi
 
-    if [ $(cat /tmp/main.$$.rst |wc -l) -gt 1 ]; then 
+    if [ $(cat ${tmp_dir}/main_${cluster_name}.rst |wc -l) -gt 1 ]; then 
         apply_log="--apply-log-only"
     else 
         apply_log=""
@@ -1264,51 +1265,71 @@ function f_physical_restore(){
     port = 30306
     socket = /var/run/mysqld/${cluster_name}-restore.30306.sock
     " > ${target_dir}/${cluster_name}-restored.cnf
-    f_log info "${cluster_name}" "Temporary MySQL / MariaDB Cluster will be started ... "
 
-    rm ${tmp_dir}/main.rst ${tmp_dir}/recover.rst
+
+    f_log info "${cluster_name}" "Temporary Restored MySQL / MariaDB Cluster will be started ... "
+
+    rm ${tmp_dir}/main_${cluster_name}.rst ${tmp_dir}/recover.rst  2> /dev/null
     sleep_timeout=0
     [ -z "${grace_timeout}" ] && grace_timeout=30
     # ADD PASSWORD SYNTAX
-    resto_dsn_info=" --host=${host} --port=30306 --user=${user} ${password} "
+    # resto_dsn_info=" --host=${host} --port=30306 --user=${user} ${password} "
 
-    mysqld --defaults-file=${target_dir}/${cluster_name}-restored.cnf --user=mysql --log-error=${tmp_dir}/${cluster_name}_restore_$$.err & > /dev/null 2>&1
+    resto_dsn_info="  --defaults-extra-file=${service_file} --defaults-group-suffix=mbkrest --socket=/var/run/mysqld/${cluster_name}-restore.30306.sock "
+
+    mysqld --defaults-file=${target_dir}/${cluster_name}-restored.cnf --user=mysql --log-error=${target_dir}/${cluster_name}_restore.err & > /dev/null 2>&1
 
     while [ ${sleep_timeout} -le ${grace_timeout} ]
     do
     confirm_port=$(mysql ${resto_dsn_info} -sNe "select @@port" 2> /dev/null )
     if [ "${confirm_port}" != "30306"  ]; then
-        f_log info "${cluster_name}" "Waiting for temporary MySQL / MariaDB start ..."
+        f_log info "${cluster_name}" "Waiting for Temporary Restored MySQL / MariaDB start ..."
         sleep 2 ; ((sleep_timeout++))
         continue
     else
-        grep " mysqld: ready for connections" ${tmp_dir}/${cluster_name}_restore_$$.err > /dev/null 2>&1
+        grep " mysqld: ready for connections" ${target_dir}/${cluster_name}_restore.err > /dev/null 2>&1
         if [ $? -eq 0 ]; then
-
-        if [ -f ${target_dir}/recover.sql ]; then
-        f_log info   "${cluster_name}" "Loading restored datas ..."
-        mysql ${resto_dsn_info} < ${target_dir}/recover.sql 2> /dev/null
-            if [ $? -eq 0 ]; then
-            rm -f ${target_dir}/recover.sql 2> /dev/null
-            f_log success  "${cluster_name}"  "Datas load into temporary MySQL / MariaDB Cluster "
-            f_log info   "${cluster_name}"  "Shutting down temporary MySQL / MariaDB Cluster with grace timeout : ${grace_timeout} s "
-            else
-            rm -f ${target_dir}/recover.sql
-            f_log failed  "${cluster_name}"  "Datas not load into temporary MySQL / MariaDB Cluster "
-            f_log info   "${cluster_name}"  "Shutting down temporary MySQL / MariaDB Cluster with grace timeout : ${grace_timeout} s "
+            f_log success "${cluster_name}" "Temporary Restored MySQL / MariaDB is ON "
+            if [ -f ${target_dir}/recover.sql ]; then
+            f_log info   "${cluster_name}" "Loading restored datas ..."
+            mysql ${resto_dsn_info} < ${target_dir}/recover.sql 2> /dev/null
+                if [ $? -eq 0 ]; then
+                rm -f ${target_dir}/recover.sql 2> /dev/null
+                f_log success  "${cluster_name}"  "Datas load into Temporary Restored MySQL / MariaDB Cluster "
+                f_log info   "${cluster_name}"  "Shutting down Temporary Restored MySQL / MariaDB Cluster with grace timeout : ${grace_timeout} s "
+                else
+                rm -f ${target_dir}/recover.sql
+                f_log failed  "${cluster_name}"  "Datas not load into Temporary Restored MySQL / MariaDB Cluster "
+                f_log info   "${cluster_name}"  "Shutting down Temporary Restored MySQL / MariaDB Cluster with grace timeout : ${grace_timeout} s "
+                fi
             fi
-        fi
-        mysqladmin ${resto_dsn_info} shutdown > /dev/null 2>&1
-        sleep ${grace_timeout}
-        mysql ${resto_dsn_info} -sNe "select 0" 2>/dev/null
-        if [ $? -ne 0 ]; then
-            f_log success "${cluster_name}" "Temporary MySQL / MariaDB is OFF "
+             mysqladmin ${resto_dsn_info} shutdown > ${target_dir}/${cluster_name}_restore.err 
+            if [ $? -eq 0 ]; then
+                f_log success "${cluster_name}" "Temporary Restored MySQL / MariaDB shutting down ... Waiting ${grace_timeout} seconds before re-check "
+            else
+                f_log failed "${cluster_name}" "Failed to shutdown Temporary Restored MySQL / MariaDB instance . Exiting   "
+                exit 2 
+            fi
+            sleep ${grace_timeout}
+            mysql ${resto_dsn_info} -sNe "select 0" 2>/dev/null
+            if [ $? -ne 0 ]; then
+                f_log success "${cluster_name}" "Temporary Restored MySQL / MariaDB is OFF "
+                f_log info "${cluster_name}" "You can start the restored instance with : " 
+                f_log info "${cluster_name}" " >  mysqld --defaults-file=${target_dir}/${cluster_name}-restored.cnf --user=mysql --log-error=${target_dir}/${cluster_name}_restore.err & "
+                f_log info "${cluster_name}" "You can connect to it with : "                 
+                f_log info "${cluster_name}" " >  mysql ${resto_dsn_info} "
+                f_log info "${cluster_name}" "You can stop it with : "                 
+                f_log info "${cluster_name}" " >  mysqladmin ${resto_dsn_info} shutdown "
+                f_log success "${cluster_name}" "End of restoration process "
+
+            else
+                f_log failed "${cluster_name}" "Temporary Restored MySQL / MariaDB still running !!!  "
+            fi
+            break
         else
-            f_log failed "${cluster_name}" "Temporary MySQL / MariaDB still running !!!  "
-        fi
-        break
-        else
-        f_log failed "${cluster_name}" "Temporary MySQL / MariaDB is not ready for connections "
+        f_log failed "${cluster_name}" "Temporary Restored MySQL / MariaDB is not ready for connections "
+                sleep 2 ; ((sleep_timeout++))
+        continue
         fi
     fi
 
@@ -1320,7 +1341,7 @@ function f_physical_restore(){
 function f_physical_recover(){
 
   f_log info "${cluster_name}" "Recovery Option set to Yes ... "
-  last_ts=$(tail -n 1 ${tmp_dir}/main.$$.rst  | mawk -F";" '{print $3}')
+  last_ts=$(tail -n 1 ${tmp_dir}/main_${cluster_name}.rst  | mawk -F";" '{print $3}')
   f_log info "${cluster_name}" "Launching recover from $(date -d@${last_ts} +"%Y-%m-%d %H:%M:%S") to ${date} ... "
 
   cat ${physical_backup_directory_arc}/catalog | while read arclog
